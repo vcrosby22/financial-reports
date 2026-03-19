@@ -4,10 +4,12 @@ Usage: python -m src report
 Produces: reports/market-report-YYYY-MM-DD.html
 """
 
+import os
 import webbrowser
 from datetime import datetime
 from html import escape
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from rich.console import Console
 
@@ -114,7 +116,8 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         filepath.parent.mkdir(parents=True, exist_ok=True)
     else:
         REPORTS_DIR.mkdir(exist_ok=True)
-        filename = f"market-report-{datetime.now().strftime('%Y-%m-%d-%H%M')}.html"
+        et = ZoneInfo("America/New_York")
+        filename = f"market-report-{datetime.now(et).strftime('%Y-%m-%d-%H%M')}.html"
         filepath = REPORTS_DIR / filename
 
     filepath.write_text(html)
@@ -136,7 +139,9 @@ def _build_html(
     trend_context: str,
     opportunities: list[Opportunity] | None = None,
 ) -> str:
-    now = datetime.now().strftime("%B %d, %Y at %H:%M")
+    et = ZoneInfo("America/New_York")
+    now_et = datetime.now(et)
+    now = now_et.strftime("%B %d, %Y at %I:%M %p ET")
 
     risk_color = {
         "low": "#22c55e", "moderate": "#eab308", "elevated": "#f97316",
@@ -423,14 +428,41 @@ Understanding Risk Levels &amp; How They Are Calculated
 <div style="border-top:1px solid var(--border);padding-top:1rem;margin-bottom:1.25rem;">
 <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem;color:var(--text);">How the Score Is Calculated</div>
 <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.7;">
-The risk score (0–100) is the sum of all detected signals, weighted by severity and type:<br>
-<span style="margin-left:1rem;">• <strong style="color:var(--red)">Critical</strong> signal = 25 points (37 if leading indicator)</span><br>
-<span style="margin-left:1rem;">• <strong style="color:var(--yellow)">Warning</strong> signal = 10 points (15 if leading indicator)</span><br>
-<span style="margin-left:1rem;">• <strong style="color:var(--text-dim)">Info</strong> signal = 2 points</span><br>
-<strong>Leading indicators</strong> (macro data, earnings revisions, insider activity) are weighted 1.5× because they predict future conditions.
-<strong>Lagging indicators</strong> (RSI, moving averages, price drops) confirm what already happened.<br>
-The score is capped at 100. The system checks three data layers:
-<strong>Technical</strong> (price, volume, momentum), <strong>Macro</strong> (FRED economic data), and <strong>Fundamental</strong> (earnings, insiders, financial health).
+The risk score is a number from <strong style="color:var(--text);">0 to 100</strong> (hard-capped — it can never exceed 100).
+Every detected risk signal adds points based on its severity:<br>
+</div>
+
+<table style="width:auto;margin:0.75rem 0 0.75rem 0.5rem;font-size:0.8rem;">
+<thead><tr>
+<th style="text-align:left;padding-right:1.5rem;">Signal Severity</th>
+<th style="text-align:right;padding-right:1.5rem;">Lagging</th>
+<th style="text-align:right;">Leading (1.5×)</th>
+</tr></thead>
+<tbody>
+<tr><td><span style="color:var(--red);font-weight:600;">Critical</span></td>
+<td style="text-align:right;padding-right:1.5rem;">+25 pts</td>
+<td style="text-align:right;font-weight:600;">+37 pts</td></tr>
+<tr><td><span style="color:var(--yellow);font-weight:600;">Warning</span></td>
+<td style="text-align:right;padding-right:1.5rem;">+10 pts</td>
+<td style="text-align:right;font-weight:600;">+15 pts</td></tr>
+<tr><td><span style="color:var(--text-dim);">Info</span></td>
+<td style="text-align:right;padding-right:1.5rem;">+2 pts</td>
+<td style="text-align:right;">+2 pts</td></tr>
+</tbody>
+</table>
+
+<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.7;">
+All signals add up, then the total is capped at 100.<br><br>
+<strong style="color:var(--text);">Why leading indicators count more:</strong>
+<strong>Leading indicators</strong> (macro data, earnings revisions, insider activity) <em>predict</em> future conditions — they get 1.5× weight.
+<strong>Lagging indicators</strong> (RSI, moving averages, price drops) <em>confirm</em> what already happened — important but less predictive.<br><br>
+<strong style="color:var(--text);">Three data layers are checked:</strong><br>
+<span style="margin-left:1rem;">1. <strong>Technical</strong> — price, volume, momentum, moving averages (lagging)</span><br>
+<span style="margin-left:1rem;">2. <strong>Macro</strong> — FRED economic data: yield curve, credit spreads, unemployment, consumer confidence (leading)</span><br>
+<span style="margin-left:1rem;">3. <strong>Fundamental</strong> — earnings revisions, insider activity, analyst targets, financial health (leading)</span><br><br>
+<strong style="color:var(--text);">Example:</strong> A score of 85 (CRITICAL) means at least 3–4 critical signals firing simultaneously
+— like death crosses + recessionary consumer confidence + deteriorating earnings.
+A single critical signal alone only reaches 25–37 points (MODERATE).
 </div>
 </div>
 
@@ -445,38 +477,63 @@ The score is capped at 100. The system checks three data layers:
 </details>"""
 
 
-def _section_market_table(market_data: dict) -> str:
-    rows = []
-    for category, label in [("indices", "Indices"), ("stocks", "Stocks"), ("etfs", "ETFs"), ("crypto", "Crypto"), ("forex", "Forex")]:
-        items = market_data.get(category, [])
-        if not items:
-            continue
-        rows.append(f'<tr><td colspan="8" class="section-label">{label}</td></tr>')
-        for item in items:
-            ticker = escape(item["ticker"])
-            name = escape(item.get("name", item["ticker"]))
-            price = f"${item['price']:,.2f}" if item.get("price") else "—"
-            d1 = _pct_cell(item.get("change_pct_1d"))
-            w1 = _pct_cell(item.get("change_pct_1w"))
-            m1 = _pct_cell(item.get("change_pct_1m"))
-            rsi = f"{item['rsi_14']:.0f}" if item.get("rsi_14") else "—"
-            signal = _signal_badges(item)
-            rows.append(f"<tr><td><strong>{ticker}</strong></td><td style='color:var(--text-dim);font-size:0.8rem;'>{name}</td><td style='text-align:right'>{price}</td>"
-                        f"<td style='text-align:right'>{d1}</td><td style='text-align:right'>{w1}</td>"
-                        f"<td style='text-align:right'>{m1}</td><td style='text-align:right'>{rsi}</td>"
-                        f"<td>{signal}</td></tr>")
+def _market_category_table_rows(items: list) -> list[str]:
+    out = []
+    for item in items:
+        ticker = escape(item["ticker"])
+        name = escape(item.get("name", item["ticker"]))
+        price = f"${item['price']:,.2f}" if item.get("price") else "—"
+        d1 = _pct_cell(item.get("change_pct_1d"))
+        w1 = _pct_cell(item.get("change_pct_1w"))
+        m1 = _pct_cell(item.get("change_pct_1m"))
+        rsi = f"{item['rsi_14']:.0f}" if item.get("rsi_14") else "—"
+        signal = _signal_badges(item)
+        out.append(
+            f"<tr><td><strong>{ticker}</strong></td><td style='color:var(--text-dim);font-size:0.8rem;'>{name}</td>"
+            f"<td style='text-align:right'>{price}</td>"
+            f"<td style='text-align:right'>{d1}</td><td style='text-align:right'>{w1}</td>"
+            f"<td style='text-align:right'>{m1}</td><td style='text-align:right'>{rsi}</td>"
+            f"<td>{signal}</td></tr>"
+        )
+    return out
 
-    total = sum(len(market_data.get(k, [])) for k in ["indices", "stocks", "etfs", "crypto", "forex"])
-    return _collapsible(
-        f"Market Overview ({total} assets)",
-        f"""<div class="card" style="overflow-x: auto;">
+
+def _section_market_table(market_data: dict) -> str:
+    categories = [
+        ("indices", "Indices"),
+        ("stocks", "Stocks"),
+        ("etfs", "ETFs"),
+        ("crypto", "Crypto"),
+        ("forex", "Forex"),
+    ]
+    counts = {k: len(market_data.get(k, [])) for k, _ in categories}
+    total = sum(counts.values())
+    n_cats = sum(1 for v in counts.values() if v)
+    breakdown = ", ".join(f"{counts[k]} {k}" for k in counts if counts[k])
+
+    header = f"""
+<h2>Market Overview</h2>
+<div class="subtitle" style="margin-bottom:1rem;">{total} assets in {n_cats} categories ({breakdown}). Expand each section below.</div>
+"""
+
+    table_head = """<div class="card" style="overflow-x: auto;">
 <table>
 <thead><tr><th>Ticker</th><th>Name</th><th style="text-align:right">Price</th><th style="text-align:right">1D</th>
 <th style="text-align:right">1W</th><th style="text-align:right">1M</th><th style="text-align:right">RSI</th><th>Signals</th></tr></thead>
-<tbody>{"".join(rows)}</tbody>
+<tbody>"""
+    table_tail = """</tbody>
 </table>
 </div>"""
-    ) + _glossary()
+
+    parts = [header]
+    for category, label in categories:
+        items = market_data.get(category, [])
+        if not items:
+            continue
+        rows_html = "".join(_market_category_table_rows(items))
+        parts.append(_collapsible(f"{label} ({len(items)})", table_head + rows_html + table_tail))
+
+    return "\n".join(parts) + _glossary()
 
 
 def _glossary() -> str:

@@ -24,6 +24,48 @@ watchlist:
     - WSM       # Williams-Sonoma — home retail
     - TOST      # Toast — restaurant tech
 
+    # --- Healthcare ---
+    - LLY       # Eli Lilly — pharma (GLP-1, Alzheimer's)
+    - UNH       # UnitedHealth — managed care/insurance
+    - ABBV      # AbbVie — pharma (immunology, oncology)
+    - DXCM      # Dexcom — continuous glucose monitors (mid-cap)
+
+    # --- Energy ---
+    - XOM       # Exxon Mobil — integrated oil & gas
+    - COP       # ConocoPhillips — E&P
+    - FANG      # Diamondback Energy — Permian Basin E&P (mid-cap)
+
+    # --- Consumer Staples ---
+    - WMT       # Walmart — retail/grocery
+    - COST      # Costco — warehouse retail
+    - PG        # Procter & Gamble — consumer products
+
+    # --- Consumer Discretionary ---
+    - NKE       # Nike — athletic apparel
+    - MCD       # McDonald's — fast food
+    - ABNB      # Airbnb — travel/lodging (mid-cap)
+
+    # --- Industrials ---
+    - CAT       # Caterpillar — heavy equipment
+    - HON       # Honeywell — diversified industrial
+    - UBER      # Uber — ride-share/delivery (mid-cap)
+
+    # --- Financials ---
+    - GS        # Goldman Sachs — investment banking
+    - BRK-B     # Berkshire Hathaway — conglomerate (Buffett)
+    - SQ        # Block (Square) — fintech/payments (mid-cap)
+
+    # --- Real Estate ---
+    - AMT       # American Tower — cell tower REITs
+    - O         # Realty Income — monthly dividend REIT
+
+    # --- Utilities ---
+    - NEE       # NextEra Energy — renewables/utilities
+
+    # --- Communication ---
+    - NFLX      # Netflix — streaming
+    - DIS       # Disney — entertainment/streaming
+
     # --- Small-cap ($1B–$10B) ---
     - FOUR      # Shift4 Payments — payment processing
     - CELH      # Celsius Holdings — energy drinks

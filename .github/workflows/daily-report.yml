@@ -2,8 +2,10 @@ name: Daily Market Report
 
 on:
   schedule:
-    # 12:00 UTC = 7:00 AM ET (weekdays only)
+    # 12:00 UTC = 7:00 AM ET (pre-market, weekdays)
     - cron: '0 12 * * 1-5'
+    # 21:30 UTC = 4:30 PM ET (post-market close, weekdays)
+    - cron: '30 21 * * 1-5'
   workflow_dispatch:
 
 permissions:
@@ -12,6 +14,9 @@ permissions:
 jobs:
   generate-report:
     runs-on: ubuntu-latest
+
+    env:
+      TZ: America/New_York
 
     steps:
       - name: Checkout repository
