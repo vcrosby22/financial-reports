@@ -1,0 +1,109 @@
+# Financial Agent Configuration
+
+watchlist:
+  stocks:
+    # --- Mega-cap ($200B+) ---
+    - AAPL      # Apple — tech hardware/services
+    - MSFT      # Microsoft — enterprise software/cloud
+    - GOOGL     # Alphabet — search/cloud/AI
+    - AMZN      # Amazon — ecommerce/cloud
+    - NVDA      # Nvidia — semiconductors/AI
+    - TSLA      # Tesla — EVs/energy
+    - META      # Meta — social/advertising
+    - JPM       # JPMorgan Chase — banking
+    - V         # Visa — payments
+    - JNJ       # Johnson & Johnson — healthcare
+
+    # --- Mid-cap ($10B–$50B) ---
+    - CRWD      # CrowdStrike — cybersecurity
+    - DDOG      # Datadog — cloud monitoring
+    - HUBS      # HubSpot — marketing/CRM SaaS
+    - DECK      # Deckers Outdoor — consumer (Hoka, UGG)
+    - AXON      # Axon Enterprise — law enforcement tech
+    - TPL       # Texas Pacific Land — land/resources
+    - WSM       # Williams-Sonoma — home retail
+    - TOST      # Toast — restaurant tech
+
+    # --- Small-cap ($1B–$10B) ---
+    - FOUR      # Shift4 Payments — payment processing
+    - CELH      # Celsius Holdings — energy drinks
+    - LMND      # Lemonade — insurtech
+    - UPST      # Upstart — AI lending
+    - ASTS      # AST SpaceMobile — satellite broadband
+    - MNDY      # monday.com — work management SaaS
+    - DV        # DoubleVerify — digital ad verification
+    - CWAN      # Clearwater Analytics — fintech
+
+  etfs:
+    # --- Market-wide ---
+    - SPY       # S&P 500
+    - QQQ       # Nasdaq 100
+    - IWM       # Russell 2000 (small cap)
+    - MDY       # S&P MidCap 400
+    - VTI       # Total US Market
+    - VXUS      # International
+
+    # --- Sectors (SPDR Select Sector) ---
+    - XLK       # Technology
+    - XLF       # Financials
+    - XLV       # Healthcare
+    - XLE       # Energy
+    - XLI       # Industrials
+    - XLY       # Consumer Discretionary
+    - XLP       # Consumer Staples
+    - XLRE      # Real Estate
+    - XLU       # Utilities
+    - XLC       # Communication Services
+    - XLB       # Materials
+
+    # --- Bonds / Safe Haven ---
+    - BND       # Total Bond Market
+    - GLD       # Gold
+    - TLT       # Long-Term Treasury
+
+  crypto:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+
+  forex:
+    - EUR/USD
+    - GBP/USD
+    - USD/JPY
+
+# Market indices to track for overall health
+market_indices:
+  - ^GSPC     # S&P 500
+  - ^DJI      # Dow Jones
+  - ^IXIC     # Nasdaq Composite
+  - ^RUT      # Russell 2000
+  - ^VIX      # Volatility Index (Fear Index)
+  - ^TNX      # 10-Year Treasury Yield
+
+analysis:
+  # How many days of historical data to fetch for trend analysis
+  lookback_days: 90
+  # Moving average periods
+  short_ma: 50
+  long_ma: 200
+
+risk_thresholds:
+  vix_elevated: 20
+  vix_high: 30
+  vix_crisis: 40
+  # Max single-day drop to flag (percentage)
+  daily_drop_alert: -3.0
+  # Max weekly drop to flag (percentage)
+  weekly_drop_alert: -5.0
+  # RSI overbought/oversold
+  rsi_overbought: 70
+  rsi_oversold: 30
+
+schedule:
+  # Quick market scan interval during market hours (minutes)
+  quick_scan_minutes: 30
+  # Full analysis (daily)
+  full_analysis_time: "18:00"
+  # Weekly briefing (day and time)
+  weekly_briefing_day: "sunday"
+  weekly_briefing_time: "19:00"

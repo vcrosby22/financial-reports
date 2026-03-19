@@ -1,0 +1,17 @@
+yfinance>=0.2.36
+ccxt>=4.2.0
+pandas>=2.2.0
+pandas-ta>=0.3.14b1
+anthropic>=0.42.0
+sqlalchemy>=2.0.0
+fastapi>=0.115.0
+uvicorn>=0.34.0
+jinja2>=3.1.0
+apscheduler>=3.10.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+pyyaml>=6.0.0
+rich>=13.9.0
+httpx>=0.28.0
+python-dotenv>=1.0.0
+fredapi>=0.5.0
