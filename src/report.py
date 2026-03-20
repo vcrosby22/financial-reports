@@ -251,11 +251,11 @@ def _build_html(
 
     sections = []
     sections.append(_section_risk_summary(health, risk_color, conf_color, guidance))
+    sections.append(_section_score_attribution(health))
     sections.append(_section_risk_legend(health))
     sections.append(_section_market_table(market_data))
     if macro_data and macro_data.indicators:
         sections.append(_section_macro(macro_data))
-    sections.append(_section_bond_bank_plain_english(macro_data))
     sections.append(_section_authoritative_sources())
     if fundamentals:
         name_lookup = {item["ticker"]: item.get("name", item["ticker"])
@@ -265,6 +265,7 @@ def _build_html(
     if opportunities:
         sections.append(_section_opportunities(opportunities, health))
     sections.append(_section_signals(health))
+    sections.append(_section_bond_bank_plain_english(macro_data))
     if trend_context:
         sections.append(_section_trend_context(trend_context))
 
@@ -292,10 +293,17 @@ def _build_html(
   --cyan: #06b6d4;
 }}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+html {{ -webkit-text-size-adjust: 100%; }}
 body {{
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   background: var(--bg); color: var(--text);
-  line-height: 1.6; padding: 2rem; max-width: 1400px; margin: 0 auto;
+  line-height: 1.6;
+  padding: 2rem;
+  padding-left: max(2rem, env(safe-area-inset-left, 0px));
+  padding-right: max(2rem, env(safe-area-inset-right, 0px));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom, 0px));
+  max-width: 1400px; margin: 0 auto;
+  overflow-x: hidden;
 }}
 h1 {{ font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }}
 h2 {{
@@ -394,6 +402,174 @@ details[open] > .section-header::before {{ transform: rotate(90deg); }}
 .section-body .card {{ margin-bottom: 0.75rem; }}
 .section-body h2 {{ display: none; }}
 .section-body h3 {{ margin-top: 1rem; }}
+/* Banking & bonds — scannable nested details (inside plain-English card) */
+.bond-bank-intro {{ margin-bottom: 1rem; }}
+.bond-bank-intro-list {{
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}}
+.bond-bank-intro-list li {{ margin-bottom: 0.45rem; }}
+.bond-bank-intro-list strong {{ color: var(--text); }}
+.bond-bank-scan {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}}
+.bond-bank-item {{
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface2);
+  border-left: 3px solid var(--cyan);
+  overflow: hidden;
+}}
+.bond-bank-summary {{
+  cursor: pointer;
+  list-style: none;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.5rem;
+}}
+.bond-bank-summary::-webkit-details-marker {{ display: none; }}
+.bond-bank-summary::before {{
+  content: "▶";
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+  margin-right: 0.15rem;
+}}
+details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
+.bond-bank-item-body {{
+  padding: 0 0.75rem 0.75rem 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.86rem;
+  color: var(--text-dim);
+}}
+.bond-bank-item-body p {{ margin: 0.55rem 0 0 0; }}
+.bond-bank-item-body p:first-child {{ margin-top: 0.45rem; }}
+/* Subtitle row: optional rotate hint (non-blocking); shown only on narrow viewports */
+.mobile-rotate-hint {{ display: none; }}
+/* Horizontal scroll for wide data tables (mobile-friendly) */
+.table-scroll {{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 0.5rem;
+}}
+/* Fade on right edge suggests more columns (mobile); subtle */
+@media (max-width: 768px) {{
+  .table-scroll.table-edge-hint {{
+    box-shadow: inset -12px 0 14px -12px rgba(0, 0, 0, 0.55);
+  }}
+}}
+/* Sticky first column: row label stays visible while scrolling horizontally */
+.sticky-first-col table th:first-child,
+.sticky-first-col table td:first-child {{
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  box-shadow: 4px 0 10px -4px rgba(0, 0, 0, 0.5);
+}}
+.sticky-first-col table thead th:first-child {{
+  z-index: 4;
+  background: var(--surface);
+}}
+.sticky-first-col tbody tr:hover td:first-child {{
+  background: var(--surface2);
+}}
+/* Wide data tables: horizontal scroll on small screens */
+.table-scroll.wide-min > table {{
+  min-width: 36rem;
+  width: max-content;
+  max-width: none;
+}}
+.table-scroll:not(.wide-min) > table {{
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}}
+.opp-signal-grid {{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}}
+@media (max-width: 768px) {{
+  body {{
+    padding: 0.85rem 0.65rem;
+    padding-left: max(0.65rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.65rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
+  }}
+  .mobile-rotate-hint {{
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    line-height: 1.45;
+    padding: 0.35rem 0;
+    border-left: 3px solid var(--cyan);
+    padding-left: 0.6rem;
+    margin-top: 0.25rem;
+  }}
+  h1 {{ font-size: 1.2rem; }}
+  h2 {{ font-size: 1rem; margin: 1.5rem 0 0.75rem; }}
+  .risk-banner {{
+    padding: 1rem;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    gap: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }}
+  .risk-banner .level {{ font-size: 1.45rem; }}
+  .risk-banner .meta span {{
+    display: inline-block;
+    margin-right: 0.75rem;
+    margin-bottom: 0.25rem;
+  }}
+  .card {{ padding: 1rem; }}
+  .section-body {{ padding: 0 0.65rem 0.85rem; }}
+  .section-header {{
+    min-height: max(2.75rem, 44px);
+    padding: 0.85rem 0.75rem;
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }}
+  table {{ font-size: 0.8rem; }}
+  th, td {{ padding: 0.45rem 0.5rem; word-break: break-word; }}
+  .table-scroll.wide-min > table {{ min-width: 30rem; font-size: 0.78rem; }}
+  .table-scroll:not(.wide-min) > table {{ font-size: 0.85rem; }}
+  .opp-signal-grid {{ grid-template-columns: 1fr; }}
+  .footer {{ font-size: 0.72rem; line-height: 1.65; }}
+  .bond-bank-summary {{
+    min-height: max(2.65rem, 44px);
+    align-items: center;
+  }}
+}}
+/* Hide non-essential columns on phones — less horizontal travel (BL-17) */
+@media (max-width: 640px) {{
+  .col-m-hide {{
+    display: none !important;
+  }}
+  .table-scroll.wide-min > table {{ min-width: 22rem; font-size: 0.8rem; }}
+}}
+@media (max-width: 420px) {{
+  body {{
+    padding: 0.65rem 0.5rem;
+    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+  }}
+  .table-scroll.wide-min > table {{ min-width: 20rem; }}
+}}
 </style>
 </head>
 <body>
@@ -404,6 +580,9 @@ details[open] > .section-header::before {{ transform: rotate(90deg); }}
 <div class="subtitle-line">Snapshot generated: <strong>{escape(now)}</strong> (HTML build / CI time — not the same as market close).</div>
 <div class="subtitle-line">Data layers: Technical + {"Macro (FRED) + " if macro_data and macro_data.indicators else ""}{"Fundamentals" if fundamentals else "Technical only"}.</div>
 <div class="subtitle-line" id="viewer-opened"></div>
+<div class="subtitle-line mobile-rotate-hint" aria-hidden="true">
+<strong style="color:var(--cyan);">Tip:</strong> Rotating to landscape gives wider tables and less side-to-side scrolling — optional; the report is usable in portrait too.
+</div>
 </div>
 
 {body}
@@ -438,7 +617,56 @@ Generated by Financial Agent v0.2
 </html>"""
 
 
+def _section_score_attribution(health: MarketHealthReport) -> str:
+    """Top contributors to capped score; shows compression when raw sum &gt; 100."""
+    rows = []
+    for c in health.score_contributions[:15]:
+        rows.append(
+            "<tr>"
+            f"<td style=\"text-align:right;font-weight:600;\">{c.points}</td>"
+            f"<td>{escape(c.name)}</td>"
+            f"<td>{escape(c.category)}</td>"
+            f"<td>{escape(c.severity)}</td>"
+            f"<td>{escape(c.signal_type)}</td>"
+            "</tr>"
+        )
+    compression = ""
+    if health.score_uncapped > health.score:
+        compression = (
+            f"<p style=\"font-size:0.8rem;color:var(--text-dim);\">"
+            f"Raw sum before cap: <strong>{health.score_uncapped}</strong> → displayed score "
+            f"<strong>{health.score}</strong> (max 100).</p>"
+        )
+    if not rows:
+        return ""
+    return f"""
+<details style="margin-bottom:1.25rem;">
+<summary style="cursor:pointer;color:var(--cyan);font-size:0.9rem;font-weight:600;">
+  Score attribution (top contributors)
+</summary>
+<div class="card" style="margin-top:0.5rem;">
+{compression}
+<div class="table-scroll wide-min sticky-first-col table-edge-hint">
+<table style="width:100%;font-size:0.8rem;">
+<thead><tr>
+<th style="text-align:right;padding-right:0.5rem;">Pts</th><th>Signal</th><th>Cat</th><th>Sev</th><th>Lead/Lag</th>
+</tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table>
+</div>
+<p style="font-size:0.75rem;color:var(--text-dim);margin-top:0.5rem;">
+Fundamental EPS / distress / insider impacts use <strong>breadth</strong> signals (scaled sublinearly),
+not one row per watchlist ticker — see risk legend.
+</p>
+</div>
+</details>
+"""
+
+
 def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_color: str, guidance: dict) -> str:
+    raw_line = ""
+    if health.score_uncapped != health.score:
+        raw_line = f'<div class="meta">Raw sum (pre-cap): <strong>{health.score_uncapped}</strong></div>'
     return f"""
 <div class="risk-banner">
   <div>
@@ -451,7 +679,7 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
   </div>
   <div>
     <div class="level" style="color: {conf_color}">{health.confidence.upper()}</div>
-    <div style="color: var(--text-dim); font-size: 0.8rem;">Confidence</div>
+    <div style="color: var(--text-dim); font-size: 0.8rem;">Data completeness</div>
   </div>
   <div style="flex-grow: 1;">
     <div class="meta">
@@ -462,6 +690,7 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     <div class="meta" style="margin-top: 0.3rem;">
       Position guidance: <strong>{guidance['max_position']}</strong> &nbsp;|&nbsp; Stop-loss: {guidance['stop_loss']}
     </div>
+    {raw_line}
     {"<div class='meta' style='margin-top:0.3rem;color:var(--yellow)'>Data gaps: " + ", ".join(health.data_sources_missing) + "</div>" if health.data_sources_missing else ""}
   </div>
 </div>"""
@@ -511,12 +740,10 @@ def _section_risk_legend(health: MarketHealthReport) -> str:
         )
 
     conf_levels = [
-        ("HIGH", "#22c55e", "3+ data sources present (technical + macro + fundamental) AND 2+ leading indicators active. "
-         "The assessment is based on a comprehensive dataset."),
-        ("MEDIUM", "#eab308", "2 data sources present OR at least 1 leading indicator. "
-         "The assessment has meaningful data but gaps may affect accuracy."),
-        ("LOW", "#ef4444", "Technical data only. No macro or fundamental data available. "
-         "The risk score is based on lagging indicators only — treat with extra caution."),
+        ("HIGH", "#22c55e", "3+ data layers present (technical + macro + fundamental) AND 2+ leading signals counted. "
+         "Means <strong>inputs are rich</strong> — not a guarantee the risk <em>label</em> is correct."),
+        ("MEDIUM", "#eab308", "2 data layers OR at least 1 leading signal — usable but incomplete coverage."),
+        ("LOW", "#ef4444", "Technical-only or very thin leading coverage — score is more fragile."),
     ]
 
     conf_rows = []
@@ -554,6 +781,7 @@ The risk score is a number from <strong style="color:var(--text);">0 to 100</str
 Every detected risk signal adds points based on its severity:<br>
 </div>
 
+<div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="width:auto;margin:0.75rem 0 0.75rem 0.5rem;font-size:0.8rem;">
 <thead><tr>
 <th style="text-align:left;padding-right:1.5rem;">Signal Severity</th>
@@ -572,6 +800,7 @@ Every detected risk signal adds points based on its severity:<br>
 <td style="text-align:right;">+2 pts</td></tr>
 </tbody>
 </table>
+</div>
 
 <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.7;">
 All signals add up, then the total is capped at 100.<br><br>
@@ -582,14 +811,17 @@ All signals add up, then the total is capped at 100.<br><br>
 <span style="margin-left:1rem;">1. <strong>Technical</strong> — price, volume, momentum, moving averages (lagging)</span><br>
 <span style="margin-left:1rem;">2. <strong>Macro</strong> — FRED economic data: yield curve, credit spreads, unemployment, consumer confidence (leading)</span><br>
 <span style="margin-left:1rem;">3. <strong>Fundamental</strong> — earnings revisions, insider activity, analyst targets, financial health (leading)</span><br><br>
-<strong style="color:var(--text);">Example:</strong> A score of 85 (CRITICAL) means at least 3–4 critical signals firing simultaneously
-— like death crosses + recessionary consumer confidence + deteriorating earnings.
-A single critical signal alone only reaches 25–37 points (MODERATE).
+<strong style="color:var(--text);">Breadth and watchlists:</strong> Technical signals still scale with how many tickers fire
+(e.g. many RSI warnings). <strong>Fundamental</strong> impacts use <strong>one breadth row</strong> each for EPS deterioration,
+insider selling, and distress — scaled sublinearly so a large watchlist does not automatically max the score.<br><br>
+<strong style="color:var(--text);">Example:</strong> A score of 85 (CRITICAL) usually means several severe signals stacked before the 100 cap
+—not a single soft datapoint.
+A single leading critical macro signal alone is about 25–37 points (often <strong>MODERATE</strong> bucket).
 </div>
 </div>
 
 <div style="border-top:1px solid var(--border);padding-top:1rem;">
-<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.75rem;color:var(--text);">Confidence Levels</div>
+<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.75rem;color:var(--text);">Data completeness (not narrative confidence)</div>
 <div style="display:flex;flex-direction:column;gap:0.4rem;">
 {"".join(conf_rows)}
 </div>
@@ -611,10 +843,13 @@ def _market_category_table_rows(items: list) -> list[str]:
         rsi = f"{item['rsi_14']:.0f}" if item.get("rsi_14") else "—"
         signal = _signal_badges(item)
         out.append(
-            f"<tr><td><strong>{ticker}</strong></td><td style='color:var(--text-dim);font-size:0.8rem;'>{name}</td>"
+            f"<tr><td><strong>{ticker}</strong></td>"
+            f"<td class='col-m-hide' style='color:var(--text-dim);font-size:0.8rem;'>{name}</td>"
             f"<td style='text-align:right'>{price}</td>"
-            f"<td style='text-align:right'>{d1}</td><td style='text-align:right'>{w1}</td>"
-            f"<td style='text-align:right'>{m1}</td><td style='text-align:right'>{rsi}</td>"
+            f"<td style='text-align:right'>{d1}</td>"
+            f"<td class='col-m-hide' style='text-align:right'>{w1}</td>"
+            f"<td class='col-m-hide' style='text-align:right'>{m1}</td>"
+            f"<td style='text-align:right'>{rsi}</td>"
             f"<td>{signal}</td></tr>"
         )
     return out
@@ -638,10 +873,10 @@ def _section_market_table(market_data: dict) -> str:
 <div class="subtitle" style="margin-bottom:1rem;">{total} assets in {n_cats} categories ({breakdown}). Expand each section below.</div>
 """
 
-    table_head = """<div class="card" style="overflow-x: auto;">
+    table_head = """<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
-<thead><tr><th>Ticker</th><th>Name</th><th style="text-align:right">Price</th><th style="text-align:right">1D</th>
-<th style="text-align:right">1W</th><th style="text-align:right">1M</th><th style="text-align:right">RSI</th><th>Signals</th></tr></thead>
+<thead><tr><th>Ticker</th><th class="col-m-hide">Name</th><th style="text-align:right">Price</th><th style="text-align:right">1D</th>
+<th class="col-m-hide" style="text-align:right">1W</th><th class="col-m-hide" style="text-align:right">1M</th><th style="text-align:right">RSI</th><th>Signals</th></tr></thead>
 <tbody>"""
     table_tail = """</tbody>
 </table>
@@ -747,17 +982,21 @@ Glossary — What Do These Terms &amp; Signals Mean?
 <div class="card" style="margin-top:0.5rem;">
 
 <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.75rem;color:var(--text);">Signal Badges</div>
+<div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="margin-bottom:1.25rem;">
 <thead><tr><th style="width:3.5rem;">Badge</th><th style="width:10rem;">Name</th><th>What It Means</th></tr></thead>
 <tbody>""" + signal_rows + """</tbody>
 </table>
+</div>
 
 <div style="border-top:1px solid var(--border);padding-top:1rem;">
 <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.75rem;color:var(--text);">Column Definitions &amp; Key Metrics</div>
+<div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
 <thead><tr><th style="width:5.5rem;">Term</th><th style="width:10rem;">Full Name</th><th>What It Means</th></tr></thead>
 <tbody>""" + metric_rows + """</tbody>
 </table>
+</div>
 </div>
 
 </div>
@@ -831,9 +1070,9 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
             f"<tr><td><strong>{escape(ind.name)}</strong>"
             f"<br><span style='font-size:0.7rem;color:var(--text-dim);'>{escape(ind.series_id)}</span></td>"
             f"<td style='text-align:right'>{ind.value:,.2f}</td>"
-            f"<td style='text-align:right'>{change}</td>"
+            f"<td class='col-m-hide' style='text-align:right'>{change}</td>"
             f"<td><span class='tag {signal_class}'>{ind.signal}</span></td>"
-            f"<td style='color:var(--text-dim)'>{escape(ind.description)}</td></tr>"
+            f"<td class='col-m-hide' style='color:var(--text-dim)'>{escape(ind.description)}</td></tr>"
         )
 
     def _append_category_block(cat: str, inds: list) -> None:
@@ -882,9 +1121,9 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
     return _collapsible(
         f"Macroeconomic Indicators (FRED){summary}",
         methodology
-        + f"""<div class="card" style="overflow-x: auto;">
+        + f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
-<thead><tr><th>Indicator</th><th style="text-align:right">Value</th><th style="text-align:right">Change</th><th>Signal</th><th>Assessment</th></tr></thead>
+<thead><tr><th>Indicator</th><th style="text-align:right">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th>Signal</th><th class="col-m-hide">Assessment</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
@@ -913,9 +1152,9 @@ def _section_fundamentals(fundamentals: dict[str, StockFundamentals], name_looku
             f"<td class='{eps_style}'>{eps}</td>"
             f"<td class='{insider_style}'>{insider}</td>"
             f"<td style='text-align:right'>{upside}</td>"
-            f"<td style='text-align:right'>{de}</td>"
-            f"<td style='text-align:right'>{roe}</td>"
-            f"<td style='text-align:right'>{completeness}</td></tr>"
+            f"<td class='col-m-hide' style='text-align:right'>{de}</td>"
+            f"<td class='col-m-hide' style='text-align:right'>{roe}</td>"
+            f"<td class='col-m-hide' style='text-align:right'>{completeness}</td></tr>"
         )
 
     strong = sum(1 for f in fundamentals.values() if f.fundamental_health == "strong")
@@ -929,11 +1168,11 @@ def _section_fundamentals(fundamentals: dict[str, StockFundamentals], name_looku
 
     return _collapsible(
         f"Fundamentals ({len(fundamentals)} stocks){summary}",
-        f"""<div class="card" style="overflow-x: auto;">
+        f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
 <thead><tr><th>Ticker</th><th>Health</th><th>EPS Trend</th><th>Insiders</th>
-<th style="text-align:right">Analyst Upside</th><th style="text-align:right">D/E</th>
-<th style="text-align:right">ROE</th><th style="text-align:right">Data</th></tr></thead>
+<th style="text-align:right">Analyst Upside</th><th class="col-m-hide" style="text-align:right">D/E</th>
+<th class="col-m-hide" style="text-align:right">ROE</th><th class="col-m-hide" style="text-align:right">Data</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>"""
@@ -985,7 +1224,7 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
 
   <div style="font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;">{escape(opp.thesis)}</div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:0.75rem;">
+  <div class="opp-signal-grid">
     <div>
       <div style="font-size:0.75rem;font-weight:600;color:var(--green);margin-bottom:0.3rem;">SIGNALS FOR</div>
       <ul style="font-size:0.8rem;color:var(--text-dim);margin:0;padding-left:1.2rem;line-height:1.6;">{signals_for_html}</ul>
@@ -1054,8 +1293,8 @@ def _section_signals(health: MarketHealthReport) -> str:
         type_class = "tag-leading" if sig.signal_type == "leading" else "tag-lagging"
         rows.append(
             f"<tr><td><span class='tag {sev_class}'>{sig.severity}</span></td>"
-            f"<td><span class='tag {type_class}'>{sig.signal_type}</span></td>"
-            f"<td>{escape(sig.category)}</td>"
+            f"<td class='col-m-hide'><span class='tag {type_class}'>{sig.signal_type}</span></td>"
+            f"<td class='col-m-hide'>{escape(sig.category)}</td>"
             f"<td><strong>{escape(sig.name)}</strong></td>"
             f"<td style='color:var(--text-dim)'>{escape(sig.message)}</td></tr>"
         )
@@ -1071,9 +1310,9 @@ def _section_signals(health: MarketHealthReport) -> str:
 
     return _collapsible(
         f"Risk Signals ({len(health.signals)}){summary}",
-        f"""<div class="card" style="overflow-x: auto;">
+        f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
-<thead><tr><th>Severity</th><th>Type</th><th>Category</th><th>Signal</th><th>Detail</th></tr></thead>
+<thead><tr><th>Severity</th><th class="col-m-hide">Type</th><th class="col-m-hide">Category</th><th>Signal</th><th>Detail</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>"""
@@ -1094,6 +1333,7 @@ def _section_definitions() -> str:
 <div class="card" style="line-height:1.8;">
 
 <h3 style="color:var(--cyan);font-size:0.95rem;margin-bottom:0.75rem;">Time Horizons</h3>
+<div class="table-scroll sticky-first-col table-edge-hint">
 <table style="width:100%;margin-bottom:1.25rem;">
 <tbody>
 <tr><td style="white-space:nowrap;vertical-align:top;padding-right:1rem;"><strong>Short-term</strong><br><span style="color:var(--text-dim);font-size:0.8rem;">1–4 weeks</span></td>
@@ -1104,8 +1344,10 @@ def _section_definitions() -> str:
 <td style="color:var(--text-dim);font-size:0.85rem;">Value plays — quality businesses at discounted prices with macro tailwinds.</td></tr>
 </tbody>
 </table>
+</div>
 
 <h3 style="color:var(--cyan);font-size:0.95rem;margin-bottom:0.75rem;">Risk Levels (per opportunity, 1–10)</h3>
+<div class="table-scroll sticky-first-col table-edge-hint">
 <table style="width:100%;margin-bottom:1.25rem;">
 <tbody>
 <tr><td style="white-space:nowrap;vertical-align:top;padding-right:1rem;"><span class="tag tag-strong">Low (1–3)</span></td>
@@ -1116,6 +1358,7 @@ def _section_definitions() -> str:
 <td style="color:var(--text-dim);font-size:0.85rem;">Single signal, weak fundamentals, adverse macro, or speculative. <strong style="color:var(--text);">Position: 0.5–1%</strong></td></tr>
 </tbody>
 </table>
+</div>
 
 <h3 style="color:var(--cyan);font-size:0.95rem;margin-bottom:0.75rem;">Honest Framing</h3>
 <p style="color:var(--text-dim);font-size:0.85rem;">
