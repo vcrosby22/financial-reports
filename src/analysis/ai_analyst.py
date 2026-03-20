@@ -13,13 +13,41 @@ Enhanced with:
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from anthropic import Anthropic
 from rich.console import Console
 
 from ..config import get_settings
 
+if TYPE_CHECKING:
+    from .risk import MarketHealthReport
+
 console = Console()
+
+
+def format_engine_risk_for_prompt(health: "MarketHealthReport") -> str:
+    """Summarize rule-based risk for Claude reconciliation (same run / same data)."""
+    top = health.score_contributions[:10]
+    lines = [
+        "=== RULE-BASED RISK ENGINE (same session data) ===",
+        f"Engine label: **{health.overall_risk.upper()}** | Score: **{health.score}/100** (capped)",
+        f"Raw sum before cap: **{health.score_uncapped}**",
+        "",
+        "Top contributors to the numeric score:",
+    ]
+    for c in top:
+        lines.append(
+            f"- {c.name} [{c.category}, {c.severity}, {c.signal_type}]: +{c.points} pts"
+        )
+    lines.extend([
+        "",
+        "If your **RISK ASSESSMENT** below differs from the engine label, explain briefly "
+        "(e.g. conflicting macro vs prices, threshold skepticism, or breadth vs severity).",
+        "=== END ENGINE SUMMARY ===",
+        "",
+    ])
+    return "\n".join(lines)
 
 KNOWLEDGE_PATH = Path(__file__).parent.parent.parent / "INVESTING_KNOWLEDGE.md"
 
@@ -144,6 +172,7 @@ def analyze_market_trends(
     macro_data=None,
     fundamentals_data: dict | None = None,
     trend_context: str = "",
+    engine_risk_prompt: str = "",
 ) -> dict:
     """Run a full market trend analysis via Claude."""
     settings = get_settings()
@@ -163,9 +192,11 @@ def analyze_market_trends(
 
     data_completeness_note = _build_completeness_note(macro_data, fundamentals_data)
 
+    engine_block = f"{engine_risk_prompt}\n" if engine_risk_prompt else ""
+
     user_prompt = f"""Analyze the following market data. For EVERY major conclusion, state your confidence level (HIGH/MEDIUM/LOW).
 
-{data_completeness_note}
+{engine_block}{data_completeness_note}
 
 {f"=== HISTORICAL CONTEXT ==={chr(10)}{trend_context}" if trend_context else "No historical data available — this is the first analysis."}
 
