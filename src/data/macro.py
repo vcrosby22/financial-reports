@@ -5,7 +5,7 @@ Free API — requires a key from https://fred.stlouisfed.org/docs/api/api_key.ht
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from rich.console import Console
 
@@ -37,6 +37,7 @@ class MacroIndicator:
     name: str
     value: float
     category: str = "core_macro"  # core_macro | banking_system | bond_market
+    observation_date: date | None = None  # last FRED observation date for this series
     previous_value: float | None = None
     change: float | None = None
     signal: str = "neutral"  # bullish, bearish, neutral, warning, critical
@@ -47,6 +48,8 @@ class MacroIndicator:
 class MacroSnapshot:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     indicators: list[MacroIndicator] = field(default_factory=list)
+    # Latest observation date among fetched series (each series has its own release cadence).
+    fred_observations_through: date | None = None
     yield_curve_inverted: bool = False
     credit_stress: bool = False
     recession_signals: int = 0
@@ -95,6 +98,10 @@ def fetch_macro_data() -> MacroSnapshot | None:
     _assess_credit_conditions(snapshot)
     _count_recession_signals(snapshot)
 
+    obs_dates = [ind.observation_date for ind in snapshot.indicators if ind.observation_date is not None]
+    if obs_dates:
+        snapshot.fred_observations_through = max(obs_dates)
+
     return snapshot
 
 
@@ -115,11 +122,20 @@ def _fetch_single_series(fred, series_id: str, name: str, category: str = "core_
         previous = float(data.iloc[-2]) if len(data) > 1 else None
         change = current - previous if previous is not None else None
 
+        last_idx = data.index[-1]
+        if hasattr(last_idx, "date"):
+            obs_date: date | None = last_idx.date()
+        elif isinstance(last_idx, date):
+            obs_date = last_idx
+        else:
+            obs_date = None
+
         indicator = MacroIndicator(
             series_id=series_id,
             name=name,
             value=current,
             category=category,
+            observation_date=obs_date,
             previous_value=previous,
             change=change,
         )

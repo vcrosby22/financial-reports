@@ -1,5 +1,7 @@
 """Fetch cryptocurrency data via ccxt (Binance by default)."""
 
+from datetime import datetime, timezone
+
 from rich.console import Console
 
 console = Console()
@@ -38,10 +40,18 @@ def fetch_crypto_data(symbols: list[str], exchange_id: str = "coinbase") -> list
 
             CRYPTO_NAMES = {"BTC": "Bitcoin", "ETH": "Ethereum", "SOL": "Solana"}
             base = symbol.split("/")[0]
+            ts_ms = ticker.get("timestamp")
+            quote_time = None
+            if ts_ms is not None:
+                try:
+                    quote_time = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+                except (OSError, OverflowError, ValueError, TypeError):
+                    quote_time = None
             results.append({
                 "ticker": symbol.replace("/", ""),
                 "name": CRYPTO_NAMES.get(base, base),
                 "asset_type": "crypto",
+                "quote_time": quote_time,
                 "price": ticker.get("last"),
                 "open_price": ticker.get("open"),
                 "high": ticker.get("high"),

@@ -6,7 +6,7 @@ Produces: reports/market-report-YYYY-MM-DD.html
 
 import os
 import webbrowser
-from datetime import datetime
+from datetime import date, datetime, timezone
 from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -33,6 +33,86 @@ from .data.stocks import fetch_market_indices, fetch_multiple
 console = Console()
 
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
+
+
+def _history_last_timestamp(hist) -> datetime | None:
+    """Last OHLCV bar timestamp from yfinance history, as America/New_York."""
+    if hist is None or getattr(hist, "empty", True):
+        return None
+    et = ZoneInfo("America/New_York")
+    ts = hist.index[-1]
+    if hasattr(ts, "to_pydatetime"):
+        dt = ts.to_pydatetime()
+    else:
+        dt = ts
+    if isinstance(dt, date) and not isinstance(dt, datetime):
+        dt = datetime.combine(dt, datetime.min.time())
+    if not isinstance(dt, datetime):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=et)
+    else:
+        dt = dt.astimezone(et)
+    return dt
+
+
+def _market_prices_as_of_display(market_data: dict) -> tuple[str, datetime | None]:
+    """Return (human-readable label, latest moment in ET or None).
+
+    Combines yfinance last bars (indices, stocks, ETFs, forex) and crypto exchange quote times.
+    """
+    et = ZoneInfo("America/New_York")
+    utc = ZoneInfo("UTC")
+    moments_utc: list[datetime] = []
+
+    for cat in ("indices", "stocks", "etfs", "forex"):
+        for item in market_data.get(cat, []):
+            if not isinstance(item, dict):
+                continue
+            dt = _history_last_timestamp(item.get("history"))
+            if dt is not None:
+                moments_utc.append(dt.astimezone(utc))
+
+    for item in market_data.get("crypto", []):
+        if not isinstance(item, dict):
+            continue
+        qt = item.get("quote_time")
+        if qt is not None:
+            if not isinstance(qt, datetime):
+                continue
+            if qt.tzinfo is None:
+                qt = qt.replace(tzinfo=timezone.utc)
+            moments_utc.append(qt.astimezone(utc))
+
+    if not moments_utc:
+        return "Unavailable (no price history)", None
+
+    latest_et = max(moments_utc).astimezone(et)
+    if latest_et.hour == 0 and latest_et.minute == 0 and latest_et.second == 0:
+        label = (
+            f'{latest_et.strftime("%B %d, %Y")} '
+            "(last bar date in data; US-listed names usually last regular session)"
+        )
+    else:
+        label = latest_et.strftime("%B %d, %Y at %I:%M %p ET")
+    return label, latest_et
+
+
+def _fred_observations_html(macro_data: MacroSnapshot | None) -> str:
+    if macro_data and macro_data.indicators:
+        if macro_data.fred_observations_through:
+            d = macro_data.fred_observations_through.strftime("%B %d, %Y")
+            return (
+                f'<div class="subtitle-line">Macro (FRED) observations through: <strong>{escape(d)}</strong> '
+                f"(release cadence varies by series).</div>"
+            )
+        return (
+            '<div class="subtitle-line">Macro (FRED): loaded, but observation dates unavailable.</div>'
+        )
+    return (
+        '<div class="subtitle-line">Macro (FRED): not in this snapshot '
+        "(missing API key or fetch failed).</div>"
+    )
 
 
 def generate_report(output_path: str | None = None, open_browser: bool = True):
@@ -144,6 +224,22 @@ def _build_html(
     now_et = datetime.now(et)
     now = now_et.strftime("%B %d, %Y at %I:%M %p ET")
 
+    market_asof_label, market_asof_dt = _market_prices_as_of_display(market_data)
+    title_asof = (
+        market_asof_dt.strftime("%Y-%m-%d") if market_asof_dt else "see snapshot"
+    )
+    fred_block = _fred_observations_html(macro_data)
+    if macro_data and macro_data.fred_observations_through:
+        fred_footer = (
+            "Macro (FRED) observations through: "
+            f"{macro_data.fred_observations_through.strftime('%B %d, %Y')} "
+            "(cadence varies by series)."
+        )
+    elif macro_data and macro_data.indicators:
+        fred_footer = "Macro (FRED): loaded; observation dates unavailable."
+    else:
+        fred_footer = "Macro (FRED): not in this snapshot."
+
     risk_color = {
         "low": "#22c55e", "moderate": "#eab308", "elevated": "#f97316",
         "high": "#ef4444", "critical": "#dc2626",
@@ -179,7 +275,7 @@ def _build_html(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Market Report — {now}</title>
+<title>Market Report — data as of {escape(title_asof)}</title>
 <style>
 :root {{
   --bg: #0f172a;
@@ -208,6 +304,8 @@ h2 {{
   margin: 2rem 0 1rem;
 }}
 .subtitle {{ color: var(--text-dim); font-size: 0.85rem; margin-bottom: 1.5rem; }}
+.subtitle-stack {{ display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.5rem; }}
+.subtitle-line {{ color: var(--text-dim); font-size: 0.85rem; line-height: 1.45; }}
 .card {{
   background: var(--surface); border-radius: 0.75rem;
   padding: 1.25rem; margin-bottom: 1rem;
@@ -300,22 +398,42 @@ details[open] > .section-header::before {{ transform: rotate(90deg); }}
 </head>
 <body>
 <h1>Financial Agent — Market Report</h1>
-<div class="subtitle">{now} &nbsp;|&nbsp; Data: Technical + {"Macro (FRED) + " if macro_data and macro_data.indicators else ""}{"Fundamentals" if fundamentals else "Technical only"} &nbsp;|&nbsp; Generated at this time (ET); CI can refresh on a weekday schedule if configured</div>
+<div class="subtitle-stack">
+<div class="subtitle-line">Market prices & technicals as of: <strong>{escape(market_asof_label)}</strong></div>
+{fred_block}
+<div class="subtitle-line">Snapshot generated: <strong>{escape(now)}</strong> (HTML build / CI time — not the same as market close).</div>
+<div class="subtitle-line">Data layers: Technical + {"Macro (FRED) + " if macro_data and macro_data.indicators else ""}{"Fundamentals" if fundamentals else "Technical only"}.</div>
+<div class="subtitle-line" id="viewer-opened"></div>
+</div>
 
 {body}
 
 <div class="footer">
+<strong>Freshness:</strong> Market prices & technicals as of: {escape(market_asof_label)}.
+{escape(fred_footer)} Snapshot generated: {escape(now)}.
+Static Pages only update when CI runs — between runs, numbers are stale even if this page says “today” on your device.<br>
 <strong>Limitations:</strong> Cannot predict black swan events (pandemics, wars, regulatory shocks).
 Correlations may break down in crises — "diversified" assets can fall together.
 Free data sources (yfinance) may have delays or accuracy issues.<br>
 <strong>Data sources:</strong> yfinance (unofficial){", FRED API (official U.S. macro series)" if macro_data else ""}.
 Macro signals and narratives are rule-based heuristics on those series — not investment advice, not bank safety ratings (not CAMELS), not forecasts.<br>
 This report is for educational / family context. <a href="#authoritative-sources" style="color:var(--cyan);">Authoritative data sources</a><br>
-Generated by Financial Agent v0.2 &nbsp;|&nbsp; {now}
+Generated by Financial Agent v0.2
 </div>
 
 {_section_definitions()}
 
+<script>
+(function () {{
+  var el = document.getElementById("viewer-opened");
+  if (!el) return;
+  var d = new Date();
+  el.textContent =
+    "You opened this page: " +
+    d.toLocaleString(undefined, {{ dateStyle: "long", timeStyle: "short" }}) +
+    " (your device clock — not a market quote time).";
+}})();
+</script>
 </body>
 </html>"""
 
