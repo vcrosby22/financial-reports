@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .analysis.accuracy import check_predictions, display_predictions
-from .analysis.ai_analyst import analyze_market_trends
+from .analysis.ai_analyst import analyze_market_trends, format_engine_risk_for_prompt
 from .analysis.memory import build_trend_context
 from .analysis.risk import MarketHealthReport, assess_market_health, get_position_guidance
 from .config import load_config
@@ -148,12 +148,22 @@ def display_risk_report(health: MarketHealthReport):
     conf_colors = {"high": "green", "medium": "yellow", "low": "red"}
     conf_color = conf_colors.get(health.confidence, "white")
 
+    comp_note = (
+        "[dim](“Data completeness” = how many layers we have: technical / macro / fundamental — "
+        "not “confidence the label is right”)[/dim]"
+    )
+    uncap_note = (
+        f"  |  Raw sum (pre-cap): [bold]{health.score_uncapped}[/bold]"
+        if health.score_uncapped != health.score
+        else ""
+    )
     console.print(Panel(
         f"[{color}]Risk Level: {health.overall_risk.upper()}[/{color}]  |  "
-        f"Score: {health.score}/100  |  "
-        f"Confidence: [{conf_color}]{health.confidence.upper()}[/{conf_color}]  |  "
+        f"Score: {health.score}/100{uncap_note}  |  "
+        f"Data completeness: [{conf_color}]{health.confidence.upper()}[/{conf_color}]  |  "
         f"Critical: {health.critical_count}  |  Warnings: {health.warning_count}  |  "
-        f"Leading Signals: {health.leading_signal_count}",
+        f"Leading Signals: {health.leading_signal_count}\n"
+        f"{comp_note}",
         title="Market Health Assessment",
         border_style=color,
     ))
@@ -194,6 +204,25 @@ def display_risk_report(health: MarketHealthReport):
             )
 
         console.print(table)
+
+    top = health.score_contributions[:12]
+    if top:
+        console.print("\n[bold]Score attribution[/bold] [dim](top contributors; fundamentals use breadth scaling)[/dim]")
+        att = Table(show_header=True, header_style="bold")
+        att.add_column("Pts", justify="right", style="yellow")
+        att.add_column("Signal")
+        att.add_column("Cat")
+        att.add_column("Sev")
+        att.add_column("Type")
+        for c in top:
+            att.add_row(
+                str(c.points),
+                c.name if len(c.name) < 52 else c.name[:49] + "…",
+                c.category,
+                c.severity,
+                c.signal_type,
+            )
+        console.print(att)
 
 
 def display_macro_summary(macro_data):
@@ -336,11 +365,16 @@ def cmd_analyze():
         macro_data=macro_data,
         fundamentals_data=fundamentals_data,
         trend_context=trend_context,
+        engine_risk_prompt=format_engine_risk_for_prompt(health),
     )
 
     console.print(Panel(
         Markdown(report["full_report"]),
-        title=f"AI Market Analysis — Risk: {report['risk_level'].upper()} | Confidence: {health.confidence.upper()}",
+        title=(
+            f"AI analysis — Narrative risk: {report['risk_level'].upper()}  |  "
+            f"Engine: {health.overall_risk.upper()} ({health.score}/100)  |  "
+            f"Data completeness: {health.confidence.upper()}"
+        ),
         border_style="blue",
         padding=(1, 2),
     ))
@@ -413,6 +447,11 @@ def main():
   risk          Risk assessment only (indices + ETFs + macro)
   report        Generate static HTML report (opens in browser)
   predictions   View prediction tracker and accuracy
+
+  CI / shareable URL (stable filename):
+    python -m src report --no-open --output site/index.html
+  Public site: vcrosby22/financial-reports → https://vcrosby22.github.io/financial-reports/
+  See PORTING.md, PUBLISHING.md, ../public-market-report/README.md
         """,
     )
     parser.add_argument("command", choices=["init", "scan", "analyze", "risk", "report", "predictions"],

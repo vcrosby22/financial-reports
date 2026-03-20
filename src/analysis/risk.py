@@ -11,6 +11,7 @@ Layers:
   4. Confidence scoring (how complete is our data?)
 """
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -27,12 +28,26 @@ class RiskSignal:
 
 
 @dataclass
+class ScoreContribution:
+    """One signal's contribution to the additive risk score (before cap)."""
+
+    name: str
+    severity: str
+    category: str
+    signal_type: str
+    ticker: str
+    points: int
+
+
+@dataclass
 class MarketHealthReport:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     overall_risk: str = "low"  # low, moderate, elevated, high, critical
     signals: list[RiskSignal] = field(default_factory=list)
-    score: int = 0  # 0-100, higher = more risk
-    confidence: str = "low"  # low, medium, high
+    score: int = 0  # 0-100, higher = more risk (capped)
+    score_uncapped: int = 0  # raw sum before min(..., 100)
+    score_contributions: list[ScoreContribution] = field(default_factory=list)
+    confidence: str = "low"  # low, medium, high — data completeness / coverage, not P(risk label)
     data_sources_present: list[str] = field(default_factory=list)
     data_sources_missing: list[str] = field(default_factory=list)
 
@@ -109,7 +124,10 @@ def assess_market_health(
     if fundamentals_data:
         _check_fundamental_signals(fundamentals_data, report)
 
-    report.score = _calculate_risk_score(report)
+    uncapped, capped, contributions = compute_score_from_signals(report.signals)
+    report.score_uncapped = uncapped
+    report.score = capped
+    report.score_contributions = contributions
     report.overall_risk = _score_to_level(report.score)
     report.confidence = _assess_confidence(report)
 
@@ -314,51 +332,74 @@ def _check_macro_signals(macro_data, report: MarketHealthReport):
 
 # --- Layer 3: Fundamental Checks (Leading) ---
 
+# Breadth signals use `value` = count; points sublinear in count (see signal_points).
+_MAX_EPS_DISTRESS_BREADTH_POINTS = 30
+
+
 def _check_fundamental_signals(fundamentals_data: dict, report: MarketHealthReport):
-    """Check individual stock fundamentals for distress signals."""
-    deteriorating_count = 0
-    insider_selling_count = 0
+    """Aggregate fundamentals into breadth signals (avoids per-ticker score explosion)."""
+    deteriorating: list[str] = []
+    insider_selling: list[str] = []
+    distressed: list[str] = []
 
     for ticker, fund in fundamentals_data.items():
         if fund.eps_revision_trend == "deteriorating":
-            deteriorating_count += 1
-            report.signals.append(RiskSignal(
-                name="EPS Revisions Declining", severity="warning", category="fundamental",
-                message=f"{ticker}: Analyst earnings estimates being revised DOWN "
-                        f"(up: {fund.eps_revision_up_30d}, down: {fund.eps_revision_down_30d} in 30d).",
-                ticker=ticker, signal_type="leading",
-            ))
-
+            deteriorating.append(ticker)
         if fund.insider_signal == "selling":
-            insider_selling_count += 1
-            report.signals.append(RiskSignal(
-                name="Insider Selling", severity="info", category="fundamental",
-                message=f"{ticker}: Significant insider selling detected "
-                        f"({fund.insider_sell_count} sales vs {fund.insider_buy_count} buys).",
-                ticker=ticker, signal_type="leading",
-            ))
-
+            insider_selling.append(ticker)
         if fund.fundamental_health == "distressed":
-            report.signals.append(RiskSignal(
-                name="Fundamental Distress", severity="warning", category="fundamental",
-                message=f"{ticker}: Weak fundamentals — negative ROE, high debt, or declining revenue.",
-                ticker=ticker, signal_type="leading",
-            ))
+            distressed.append(ticker)
 
-    if deteriorating_count >= 3:
+    if deteriorating:
+        n = len(deteriorating)
+        sample = ", ".join(deteriorating[:8])
+        more = f" (+{n - 8} more)" if n > 8 else ""
         report.signals.append(RiskSignal(
-            name="Broad Earnings Deterioration", severity="warning", category="fundamental",
-            message=f"{deteriorating_count} watched stocks have deteriorating earnings estimates — "
-                    f"suggests broad corporate weakness, not isolated issues.",
+            name="EPS revisions breadth",
+            severity="warning",
+            category="fundamental",
+            message=(
+                f"{n} watched stocks have deteriorating analyst EPS estimates (30d). "
+                f"Examples: {sample}{more}."
+            ),
+            ticker="",
             signal_type="leading",
+            value=float(n),
         ))
 
-    if insider_selling_count >= 3:
+    if insider_selling:
+        n = len(insider_selling)
+        sample = ", ".join(insider_selling[:8])
+        more = f" (+{n - 8} more)" if n > 8 else ""
+        sev = "warning" if n >= 3 else "info"
         report.signals.append(RiskSignal(
-            name="Widespread Insider Selling", severity="warning", category="fundamental",
-            message=f"{insider_selling_count} watched stocks show significant insider selling — "
-                    f"those closest to the business are reducing exposure.",
+            name="Insider selling breadth",
+            severity=sev,
+            category="fundamental",
+            message=(
+                f"{n} watched stocks show insider selling activity. "
+                f"Names: {sample}{more}."
+            ),
+            ticker="",
             signal_type="leading",
+            value=float(n),
+        ))
+
+    if distressed:
+        n = len(distressed)
+        sample = ", ".join(distressed[:8])
+        more = f" (+{n - 8} more)" if n > 8 else ""
+        report.signals.append(RiskSignal(
+            name="Fundamental distress breadth",
+            severity="warning",
+            category="fundamental",
+            message=(
+                f"{n} watched stocks flagged as fundamental distress (weak health screen). "
+                f"Examples: {sample}{more}."
+            ),
+            ticker="",
+            signal_type="leading",
+            value=float(n),
         ))
 
 
@@ -383,17 +424,64 @@ def _find_ticker(items: list[dict], ticker: str) -> dict | None:
     return None
 
 
-def _calculate_risk_score(report: MarketHealthReport) -> int:
-    score = 0
-    for signal in report.signals:
-        weight = 1.5 if signal.signal_type == "leading" else 1.0
-        if signal.severity == "critical":
-            score += int(25 * weight)
-        elif signal.severity == "warning":
-            score += int(10 * weight)
-        elif signal.severity == "info":
-            score += 2
-    return min(score, 100)
+def _breadth_points(n: int, cap: int = _MAX_EPS_DISTRESS_BREADTH_POINTS) -> int:
+    """Sublinear points from breadth count n (leading-warning baseline ≈15 at n=1)."""
+    if n <= 0:
+        return 0
+    base_weight = 1.5  # leading
+    linear = int(10 * base_weight)  # 15 for first bucket (warning tier)
+    bump = int(5 * base_weight * math.log1p(max(0, n - 1)) / math.log1p(25))
+    return min(linear + bump, cap)
+
+
+def signal_points(signal: RiskSignal) -> int:
+    """Points this signal adds to the uncapped risk sum (breadth signals scaled)."""
+    if signal.name in ("EPS revisions breadth", "Fundamental distress breadth"):
+        return _breadth_points(int(signal.value) if signal.value else 1)
+
+    if signal.name == "Insider selling breadth":
+        n = int(signal.value) if signal.value else 1
+        if signal.severity == "warning":
+            return _breadth_points(n, cap=_MAX_EPS_DISTRESS_BREADTH_POINTS)
+        return 2  # info tier, leading but cap at base info rule
+
+    weight = 1.5 if signal.signal_type == "leading" else 1.0
+    if signal.severity == "critical":
+        return int(25 * weight)
+    if signal.severity == "warning":
+        return int(10 * weight)
+    if signal.severity == "info":
+        return 2
+    return 0
+
+
+def compute_score_from_signals(signals: list[RiskSignal]) -> tuple[int, int, list[ScoreContribution]]:
+    """Return (uncapped_total, capped_score, contributions sorted by points descending)."""
+    contributions: list[ScoreContribution] = []
+    total = 0
+    for signal in signals:
+        pts = signal_points(signal)
+        total += pts
+        contributions.append(
+            ScoreContribution(
+                name=signal.name,
+                severity=signal.severity,
+                category=signal.category,
+                signal_type=signal.signal_type,
+                ticker=signal.ticker or "—",
+                points=pts,
+            )
+        )
+    contributions.sort(key=lambda c: (-c.points, c.category, c.name))
+    capped = min(total, 100)
+    return total, capped, contributions
+
+
+def score_macro_layer_only(macro_data) -> tuple[int, int, list[ScoreContribution]]:
+    """Macro + derived flags only — for historical replay (no technicals/fundamentals)."""
+    report = MarketHealthReport()
+    _check_macro_signals(macro_data, report)
+    return compute_score_from_signals(report.signals)
 
 
 def _score_to_level(score: int) -> str:

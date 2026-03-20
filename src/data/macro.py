@@ -300,6 +300,18 @@ def _classify_signal(indicator: MacroIndicator):
             indicator.description = "Investment-grade (BBB) spread within non-crisis band"
 
 
+def apply_derived_macro_flags(snapshot: MacroSnapshot) -> None:
+    """Recompute flags from `snapshot.indicators` (yield inversion, credit stress, recession tally)."""
+    _assess_yield_curve(snapshot)
+    _assess_credit_conditions(snapshot)
+    _count_recession_signals(snapshot)
+
+
+def classify_macro_observation(indicator: MacroIndicator) -> None:
+    """Apply the same rules as live FRED fetch (for historical replay rows). Mutates `indicator`."""
+    _classify_signal(indicator)
+
+
 def _assess_yield_curve(snapshot: MacroSnapshot):
     for ind in snapshot.indicators:
         if ind.series_id in ("T10Y2Y", "T10Y3M") and ind.value < 0:
