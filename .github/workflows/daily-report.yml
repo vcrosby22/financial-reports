@@ -36,6 +36,12 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python -m src report --output docs/index.html --no-open
 
+      - name: Verify FRED/macro is present in HTML
+        run: |
+          test -f docs/index.html
+          grep -qE 'Macroeconomic Indicators \(FRED\)|Macro \(FRED\)' docs/index.html \
+            || { echo "::error::Report HTML missing FRED/macro markers — check FRED_API_KEY secret and network."; exit 1; }
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:

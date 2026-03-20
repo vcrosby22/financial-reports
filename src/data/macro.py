@@ -13,15 +13,22 @@ from ..config import get_settings
 
 console = Console()
 
-FRED_SERIES = {
-    "T10Y2Y": "10Y-2Y Yield Spread",
-    "T10Y3M": "10Y-3M Yield Spread",
-    "BAMLH0A0HYM2": "High Yield Credit Spread",
-    "ICSA": "Initial Unemployment Claims",
-    "UMCSENT": "Consumer Confidence (UMich)",
-    "FEDFUNDS": "Fed Funds Rate",
-    "M2SL": "M2 Money Supply",
-}
+# (series_id, display_name, category). All FRED official; categories label the HTML report.
+# banking_system = system-wide aggregates only (not institution-level CAMELS).
+FRED_SERIES: list[tuple[str, str, str]] = [
+    ("T10Y2Y", "10Y-2Y Yield Spread", "core_macro"),
+    ("T10Y3M", "10Y-3M Yield Spread", "core_macro"),
+    ("BAMLH0A0HYM2", "High Yield Credit Spread", "core_macro"),
+    ("ICSA", "Initial Unemployment Claims", "core_macro"),
+    ("UMCSENT", "Consumer Confidence (UMich)", "core_macro"),
+    ("FEDFUNDS", "Fed Funds Rate", "core_macro"),
+    ("M2SL", "M2 Money Supply", "core_macro"),
+    ("TOTBKCR", "Total Bank Credit (All Commercial Banks)", "banking_system"),
+    ("WALCL", "Fed Total Assets (Balance Sheet)", "banking_system"),
+    ("DGS10", "10-Year Treasury Constant Maturity Yield", "bond_market"),
+    ("DGS2", "2-Year Treasury Constant Maturity Yield", "bond_market"),
+    ("BAMLC0A4CBBB", "ICE BofA BBB US Corporate OAS", "bond_market"),
+]
 
 
 @dataclass
@@ -29,6 +36,7 @@ class MacroIndicator:
     series_id: str
     name: str
     value: float
+    category: str = "core_macro"  # core_macro | banking_system | bond_market
     previous_value: float | None = None
     change: float | None = None
     signal: str = "neutral"  # bullish, bearish, neutral, warning, critical
@@ -45,9 +53,9 @@ class MacroSnapshot:
 
     def to_prompt_text(self) -> str:
         """Format macro data for inclusion in Claude prompts."""
-        lines = ["=== MACROECONOMIC INDICATORS (FRED) ==="]
+        lines = ["=== MACROECONOMIC & FINANCIAL STABILITY INDICATORS (FRED, OFFICIAL DATA) ==="]
         for ind in self.indicators:
-            line = f"{ind.name}: {ind.value:.2f}"
+            line = f"[{ind.category}] {ind.name}: {ind.value:.2f}"
             if ind.change is not None:
                 line += f" (change: {ind.change:+.2f})"
             line += f" | Signal: {ind.signal.upper()}"
@@ -77,9 +85,9 @@ def fetch_macro_data() -> MacroSnapshot | None:
 
     snapshot = MacroSnapshot()
 
-    for series_id, name in FRED_SERIES.items():
+    for series_id, name, category in FRED_SERIES:
         console.print(f"  Fetching {name} ({series_id})...", style="dim")
-        indicator = _fetch_single_series(fred, series_id, name)
+        indicator = _fetch_single_series(fred, series_id, name, category)
         if indicator:
             snapshot.indicators.append(indicator)
 
@@ -90,7 +98,7 @@ def fetch_macro_data() -> MacroSnapshot | None:
     return snapshot
 
 
-def _fetch_single_series(fred, series_id: str, name: str) -> MacroIndicator | None:
+def _fetch_single_series(fred, series_id: str, name: str, category: str = "core_macro") -> MacroIndicator | None:
     try:
         end = datetime.now()
         start = end - timedelta(days=365)
@@ -111,6 +119,7 @@ def _fetch_single_series(fred, series_id: str, name: str) -> MacroIndicator | No
             series_id=series_id,
             name=name,
             value=current,
+            category=category,
             previous_value=previous,
             change=change,
         )
@@ -207,6 +216,73 @@ def _classify_signal(indicator: MacroIndicator):
             indicator.signal = "neutral"
             indicator.description = "Money supply stable or growing"
 
+    elif sid == "TOTBKCR":
+        # Weekly total bank credit (billions USD). System-wide lending stock, not one bank's health.
+        if indicator.change is not None and indicator.change < -120:
+            indicator.signal = "critical"
+            indicator.description = "Very large contraction in total bank credit — strained credit conditions possible"
+        elif indicator.change is not None and indicator.change < -60:
+            indicator.signal = "warning"
+            indicator.description = "Sharp weekly drop in bank credit — watch for tightening supply"
+        elif indicator.change is not None and indicator.change > 80:
+            indicator.signal = "neutral"
+            indicator.description = "Bank credit expanding — typical growth environment signal"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Bank credit level stable vs prior week (aggregate; not institution CAMELS)"
+
+    elif sid == "WALCL":
+        # Fed balance sheet (millions USD). Direction indicates QT/QE, not bank solvency per se.
+        if indicator.change is not None and indicator.change < -75000:
+            indicator.signal = "neutral"
+            indicator.description = "Balance sheet declining (asset run-off / QT-type dynamics)"
+        elif indicator.change is not None and indicator.change > 75000:
+            indicator.signal = "warning"
+            indicator.description = "Large balance sheet increase — liquidity / asset purchases rising"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Modest weekly change in Fed assets (policy / runoff)"
+
+    elif sid == "DGS10":
+        if indicator.value >= 5.25:
+            indicator.signal = "warning"
+            indicator.description = "10Y yield very high — restrictive financing conditions for housing/Corporate"
+        elif indicator.change is not None and indicator.change >= 0.12:
+            indicator.signal = "bearish"
+            indicator.description = "10Y yield jumping — duration assets under pressure"
+        elif indicator.value <= 3.0 and indicator.change is not None and indicator.change <= -0.1:
+            indicator.signal = "bullish"
+            indicator.description = "10Y yield falling — easing financial conditions / flight to safety"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "10Y in typical range for directional read (official Treasury/FRED)"
+
+    elif sid == "DGS2":
+        if indicator.value >= 5.0:
+            indicator.signal = "warning"
+            indicator.description = "Short-end yields very high — policy tight / inversion risk vs 10Y context"
+        elif indicator.change is not None and indicator.change >= 0.15:
+            indicator.signal = "bearish"
+            indicator.description = "2Y rising fast — repricing Fed path / front-end pressure"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Policy-sensitive front-end yield (use with 10Y for curve shape)"
+
+    elif sid == "BAMLC0A4CBBB":
+        # ICE BofA BBB OAS — investment-grade credit stress (not HY)
+        if indicator.value >= 2.75:
+            indicator.signal = "critical"
+            indicator.description = "BBB option-adjusted spread very wide — IG corporate stress"
+        elif indicator.value >= 2.1:
+            indicator.signal = "warning"
+            indicator.description = "BBB spreads elevated vs norms — funding costs rising for lower IG"
+        elif indicator.change is not None and indicator.change >= 0.15:
+            indicator.signal = "bearish"
+            indicator.description = "BBB OAS widening — credit risk repricing"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Investment-grade (BBB) spread within non-crisis band"
+
 
 def _assess_yield_curve(snapshot: MacroSnapshot):
     for ind in snapshot.indicators:
@@ -216,10 +292,11 @@ def _assess_yield_curve(snapshot: MacroSnapshot):
 
 
 def _assess_credit_conditions(snapshot: MacroSnapshot):
-    for ind in snapshot.indicators:
-        if ind.series_id == "BAMLH0A0HYM2" and ind.value > 4.5:
-            snapshot.credit_stress = True
-            break
+    snapshot.credit_stress = any(
+        (ind.series_id == "BAMLH0A0HYM2" and ind.value > 4.5)
+        or (ind.series_id == "BAMLC0A4CBBB" and ind.value > 2.35)
+        for ind in snapshot.indicators
+    )
 
 
 def _count_recession_signals(snapshot: MacroSnapshot):
