@@ -277,6 +277,7 @@ def _build_html(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Market Report — data as of {escape(title_asof)}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231e293b'/><rect x='6' y='18' width='4' height='8' rx='1' fill='%233b82f6'/><rect x='14' y='12' width='4' height='14' rx='1' fill='%233b82f6'/><rect x='22' y='6' width='4' height='20' rx='1' fill='%2322c55e'/></svg>">
 <style>
 :root {{
   --bg: #0f172a;
