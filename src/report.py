@@ -693,19 +693,47 @@ def _health_score_contributions(health: MarketHealthReport) -> list:
     return list(contribs) if contribs else []
 
 
+def _attribution_severity_span(severity: str) -> str:
+    """Badge for contribution severity — matches Risk Signals table styling."""
+    sev = (severity or "").lower().strip()
+    sev_class = {"critical": "tag-critical", "warning": "tag-warning", "info": "tag-info"}.get(
+        sev, "tag-unknown"
+    )
+    label = escape(severity or "—")
+    return f"<span class='tag {sev_class}'>{label}</span>"
+
+
+def _attribution_lead_lag_span(signal_type: str) -> str:
+    st = (signal_type or "").lower().strip()
+    type_class = "tag-leading" if st == "leading" else "tag-lagging"
+    return f"<span class='tag {type_class}'>{escape(signal_type or '—')}</span>"
+
+
+def _attribution_points_style(points: int) -> str:
+    """Stronger color for larger point contributions."""
+    if points >= 20:
+        return "color:var(--red);font-weight:700;"
+    if points >= 12:
+        return "color:var(--yellow);font-weight:600;"
+    if points >= 6:
+        return "color:var(--orange);"
+    return "color:var(--text);font-weight:600;"
+
+
 def _section_score_attribution(health: MarketHealthReport) -> str:
     """Top contributors to capped score; shows compression when raw sum &gt; 100."""
     rows = []
     for c in _health_score_contributions(health)[:15]:
         ticker_display = escape(c.ticker) if c.ticker and c.ticker != "—" else ""
+        pts_style = _attribution_points_style(c.points)
         rows.append(
             "<tr>"
-            f"<td style=\"text-align:right;font-weight:600;\">{c.points}</td>"
+            f"<td style=\"text-align:right;{pts_style}\">{c.points}</td>"
             f"<td>{escape(c.name)}</td>"
             f"<td>{ticker_display}</td>"
             f"<td>{escape(c.category)}</td>"
-            f"<td>{escape(c.severity)}</td>"
-            f"<td class='col-m-hide'>{escape(c.signal_type)}</td>"
+            f"<td>{_attribution_severity_span(c.severity)}</td>"
+            f"<td class='col-m-hide'>{_attribution_lead_lag_span(c.signal_type)}</td>"
             "</tr>"
         )
     compression = ""
