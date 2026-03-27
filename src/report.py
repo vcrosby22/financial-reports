@@ -389,15 +389,16 @@ tr:hover {{ background: var(--surface2); }}
   display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.25rem;
   font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
 }}
-.tag-critical {{ background: #7f1d1d; color: #fca5a5; }}
-.tag-warning {{ background: #713f12; color: #fde047; }}
-.tag-info {{ background: #1e3a5f; color: #93c5fd; }}
+/* Severity traffic-light: scan hue before reading (critical=red, warning=amber, info=calm green) */
+.tag-critical {{ background: #dc2626; color: #ffffff; border: 1px solid #f87171; box-shadow: 0 0 0 1px rgba(220,38,38,0.35); }}
+.tag-warning {{ background: #d97706; color: #fffbeb; border: 1px solid #fbbf24; }}
+.tag-info {{ background: #059669; color: #ecfdf5; border: 1px solid #34d399; }}
 .tag-leading {{ background: #064e3b; color: #6ee7b7; }}
 .tag-lagging {{ background: var(--surface2); color: var(--text-dim); }}
 .tag-strong {{ background: #064e3b; color: #6ee7b7; }}
-.tag-moderate {{ background: #713f12; color: #fde047; }}
-.tag-weak {{ background: #7f1d1d; color: #fca5a5; }}
-.tag-distressed {{ background: #7f1d1d; color: #fca5a5; font-weight: 700; }}
+.tag-moderate {{ background: #d97706; color: #fffbeb; border: 1px solid #fbbf24; }}
+.tag-weak {{ background: #dc2626; color: #ffffff; border: 1px solid #f87171; }}
+.tag-distressed {{ background: #b91c1c; color: #ffffff; font-weight: 700; border: 1px solid #f87171; }}
 .tag-unknown {{ background: var(--surface2); color: var(--text-dim); }}
 .footer {{
   margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border);
@@ -693,14 +694,35 @@ def _health_score_contributions(health: MarketHealthReport) -> list:
     return list(contribs) if contribs else []
 
 
-def _attribution_severity_span(severity: str) -> str:
-    """Badge for contribution severity — matches Risk Signals table styling."""
+_SEVERITY_TITLES = {
+    "critical": "Highest severity — strongest risk signal",
+    "warning": "Elevated severity — watch closely",
+    "info": "Lower severity — milder or contextual signal",
+}
+
+
+def _severity_tag_html(severity: str, display: str | None = None) -> str:
+    """Severity badge: color encodes level (red / amber / green); optional tooltip."""
     sev = (severity or "").lower().strip()
     sev_class = {"critical": "tag-critical", "warning": "tag-warning", "info": "tag-info"}.get(
         sev, "tag-unknown"
     )
-    label = escape(severity or "—")
-    return f"<span class='tag {sev_class}'>{label}</span>"
+    label = escape(display if display is not None else (severity or "—"))
+    title = _SEVERITY_TITLES.get(sev, "")
+    title_attr = f' title="{escape(title, quote=True)}"' if title else ""
+    return f"<span class='tag {sev_class}'{title_attr}>{label}</span>"
+
+
+def _severity_legend_html() -> str:
+    """One-line traffic-light key so hue matches level without reading every badge."""
+    return """<div role="group" aria-label="Severity color key" style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem 0.65rem;font-size:0.72rem;color:var(--text-dim);margin:0 0 0.75rem 0;line-height:1.5;">
+<span style="font-weight:600;color:var(--text);">Severity key —</span>
+<span class="tag tag-critical">critical</span><span>highest</span>
+<span aria-hidden="true" style="opacity:0.45;">·</span>
+<span class="tag tag-warning">warning</span><span>elevated</span>
+<span aria-hidden="true" style="opacity:0.45;">·</span>
+<span class="tag tag-info">info</span><span>lower</span>
+</div>"""
 
 
 def _attribution_lead_lag_span(signal_type: str) -> str:
@@ -732,7 +754,7 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
             f"<td>{escape(c.name)}</td>"
             f"<td>{ticker_display}</td>"
             f"<td>{escape(c.category)}</td>"
-            f"<td>{_attribution_severity_span(c.severity)}</td>"
+            f"<td>{_severity_tag_html(c.severity)}</td>"
             f"<td class='col-m-hide'>{_attribution_lead_lag_span(c.signal_type)}</td>"
             "</tr>"
         )
@@ -752,6 +774,7 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
   Score attribution (top contributors)
 </summary>
 <div class="card" style="margin-top:0.5rem;">
+{_severity_legend_html()}
 {compression}
 <div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="width:100%;font-size:0.8rem;">
@@ -1538,10 +1561,9 @@ def _section_signals(health: MarketHealthReport) -> str:
         0 if s.signal_type == "leading" else 1,
     ))
     for sig in sorted_signals:
-        sev_class = f"tag-{sig.severity}"
         type_class = "tag-leading" if sig.signal_type == "leading" else "tag-lagging"
         rows.append(
-            f"<tr><td><span class='tag {sev_class}'>{sig.severity}</span></td>"
+            f"<tr><td>{_severity_tag_html(sig.severity)}</td>"
             f"<td class='col-m-hide'><span class='tag {type_class}'>{sig.signal_type}</span></td>"
             f"<td class='col-m-hide'>{escape(sig.category)}</td>"
             f"<td><strong>{escape(sig.name)}</strong></td>"
@@ -1560,6 +1582,7 @@ def _section_signals(health: MarketHealthReport) -> str:
     return _collapsible(
         f"Risk Signals ({len(health.signals)}){summary}",
         f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
+{_severity_legend_html()}
 <table>
 <thead><tr><th>Severity</th><th class="col-m-hide">Type</th><th class="col-m-hide">Category</th><th>Signal</th><th>Detail</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
