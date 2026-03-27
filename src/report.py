@@ -266,6 +266,7 @@ def _build_html(
     sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi))
     sections.append('<div id="risk"></div>')
     sections.append(_section_risk_summary(health, risk_color, conf_color, guidance))
+    sections.append(_section_risk_score_reader_context(health))
     sections.append(_section_score_attribution(health))
     sections.append(_section_risk_legend(health))
     sections.append('<div id="markets"></div>')
@@ -919,13 +920,46 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
 </div>"""
 
 
+def _section_risk_score_reader_context(health: MarketHealthReport) -> str:
+    """Plain-language explanation of uncapped score, labels, and what this site stores."""
+    uncapped = _health_uncapped_score(health)
+    capped = health.score
+    return f"""
+<div id="risk-explainer" class="card" style="border-left:3px solid var(--cyan);margin-bottom:1.25rem;">
+<h3 style="margin:0 0 0.5rem 0;font-size:0.95rem;color:var(--text);">How this risk score works (read this first)</h3>
+<div style="font-size:0.82rem;color:var(--text-dim);line-height:1.6;">
+<p style="margin:0 0 0.65rem 0;">
+<strong style="color:var(--text);">1. How we calculate it</strong> —
+Each detected signal adds <strong>points</strong> (amount varies by rule and severity; <strong>leading</strong> macro/fundamental signals are weighted <strong>1.5×</strong> vs <strong>lagging</strong> technical signals).
+We add them across VIX, drawdowns, death crosses, macro (FRED), fundamentals, and breadth.
+Your <strong>raw total</strong> is <strong>{uncapped}</strong>; we also show a <strong>0–100 capped</strong> score ({capped}) for comparison.
+The <strong>named level</strong> (Moderate through Catastrophic) uses the <strong>raw</strong> total so conditions can still look worse once many signals stack, even though the capped number stops at 100.
+</p>
+<p style="margin:0 0 0.65rem 0;">
+<strong style="color:var(--text);">2. What “Catastrophic” means here</strong> —
+It only means the raw sum is <strong>≥ 200</strong> on our rule set.
+That usually means <strong>many warnings fired at once</strong>, not that a specific bad outcome will happen.
+It is a <strong>model severity label</strong>, not a forecast, not a bank rating, and not personalized advice.
+</p>
+<p style="margin:0;">
+<strong style="color:var(--text);">3. Snapshots and history</strong> —
+Each report run saves <strong>one set of numbers for “now.”</strong>
+If you run the tool locally, a SQLite database can accumulate past tick snapshots over time.
+<strong>This public page</strong> is rebuilt on a <strong>schedule</strong> (weekdays, plus when the repo updates); it does <strong>not</strong> keep a growing score history on the server unless you add that separately.
+</p>
+</div>
+</div>
+"""
+
+
 def _section_risk_legend(health: MarketHealthReport) -> str:
     active_level = health.overall_risk
 
     levels = [
-        ("CATASTROPHIC", "200+", "#450a0a",
-         "Unprecedented convergence of risk signals. All major risk categories are in crisis. "
-         "This level has never been sustained in the modern era."),
+        ("CATASTROPHIC", "raw sum 200+",
+         "The <strong>uncapped</strong> point total reached 200 or more — many rule-based signals fired together "
+         "(technical + macro + fundamentals). This label measures <strong>stacked stress in this model</strong>; "
+         "it is <strong>not</strong> a prediction of collapse and <strong>not</strong> financial advice."),
         ("EXTREME", "150–199", "#7f1d1d",
          "Broad systemic failure signals across financial, commodity, and macro dimensions. "
          "Maximum defensive posture: cash, short-duration treasuries, zero equity exposure."),
