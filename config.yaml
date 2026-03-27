@@ -113,6 +113,11 @@ watchlist:
     - GBP/USD
     - USD/JPY
 
+# Commodities — oil (Brent/WTI) for public report KPIs and market table
+commodities:
+  - BZ=F      # Brent Crude Futures (international benchmark)
+  - CL=F      # WTI Crude Futures (US benchmark)
+
 # Market indices to track for overall health
 market_indices:
   - ^GSPC     # S&P 500

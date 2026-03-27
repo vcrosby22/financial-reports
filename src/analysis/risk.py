@@ -64,12 +64,51 @@ class MarketHealthReport:
         return sum(1 for s in self.signals if s.signal_type == "leading")
 
 
+_CRISIS_EXPLANATION = (
+    "Multiple severe risk signals are firing. The guidance is to hold cash and avoid "
+    "opening new positions entirely. There is no stop-loss to set because the recommendation "
+    "is to not buy right now. Focus on preserving what you have."
+)
+
 POSITION_SIZING = {
-    "low": {"max_position": "3-5%", "stop_loss": "10-15% below entry"},
-    "moderate": {"max_position": "1-3%", "stop_loss": "8-10% below entry"},
-    "elevated": {"max_position": "1-2%", "stop_loss": "5-8% below entry"},
-    "high": {"max_position": "0.5-1%", "stop_loss": "5% below entry"},
-    "critical": {"max_position": "0% — cash", "stop_loss": "N/A — avoid new positions"},
+    "low": {
+        "max_position": "3–5%",
+        "stop_loss": "10–15% below entry",
+        "explanation": (
+            "Market conditions are calm. You can invest normally — put up to 3–5% of your "
+            "total portfolio into any single new position. Set a stop-loss 10–15% below your "
+            "buy price so you automatically sell if it drops that far."
+        ),
+    },
+    "moderate": {
+        "max_position": "1–3%",
+        "stop_loss": "8–10% below entry",
+        "explanation": (
+            "Some risk signals are present. Keep new positions smaller — 1–3% of your portfolio each. "
+            "Set a tighter stop-loss (8–10% below entry) to limit downside if conditions worsen."
+        ),
+    },
+    "elevated": {
+        "max_position": "1–2%",
+        "stop_loss": "5–8% below entry",
+        "explanation": (
+            "The market is showing strain. Only open small positions (1–2% of portfolio) and set "
+            "tight stop-losses (5–8% below entry). Favor quality holdings over speculative ones."
+        ),
+    },
+    "high": {
+        "max_position": "0.5–1%",
+        "stop_loss": "5% below entry",
+        "explanation": (
+            "Significant risk across multiple categories. Keep any new positions very small "
+            "(0.5–1% of portfolio) with a tight 5% stop-loss. Consider whether new positions "
+            "are necessary at all right now."
+        ),
+    },
+    "critical": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION},
+    "severe": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Multiple compounding crises detected."},
+    "extreme": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Broad systemic failure signals present."},
+    "catastrophic": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Unprecedented convergence of risk signals."},
 }
 
 POSITION_SIZING_BY_SCORE = [
@@ -128,7 +167,7 @@ def assess_market_health(
     report.score_uncapped = uncapped
     report.score = capped
     report.score_contributions = contributions
-    report.overall_risk = _score_to_level(report.score)
+    report.overall_risk = _score_to_level(report.score_uncapped)
     report.confidence = _assess_confidence(report)
 
     return report
@@ -216,19 +255,30 @@ def _check_large_drops(market_data: dict, thresholds: dict, report: MarketHealth
 
 
 def _check_death_crosses(market_data: dict, report: MarketHealthReport):
+    """Aggregate death crosses into a single breadth signal (avoids per-ticker score explosion)."""
     watchable = market_data.get("indices", []) + market_data.get("stocks", []) + market_data.get("etfs", [])
+    crossed: list[str] = []
     for asset in watchable:
         ma50 = asset.get("fifty_day_ma")
         ma200 = asset.get("two_hundred_day_ma")
         if ma50 is None or ma200 is None:
             continue
-        ticker = asset.get("ticker", "???")
         if ma50 < ma200:
-            report.signals.append(RiskSignal(
-                name="Death Cross", severity="warning", category="technical",
-                message=f"{ticker}: 50-day MA (${ma50:.2f}) below 200-day MA (${ma200:.2f}) — bearish trend.",
-                ticker=ticker, value=ma50 - ma200,
-            ))
+            crossed.append(asset.get("ticker", "???"))
+
+    if crossed:
+        n = len(crossed)
+        sample = ", ".join(crossed[:8])
+        more = f" (+{n - 8} more)" if n > 8 else ""
+        sev = "critical" if n >= 8 else "warning"
+        report.signals.append(RiskSignal(
+            name="Death cross breadth",
+            severity=sev,
+            category="technical",
+            message=f"{n} watched assets have 50-day MA below 200-day MA. Names: {sample}{more}.",
+            ticker="",
+            value=float(n),
+        ))
 
 
 def _check_rsi_extremes(market_data: dict, thresholds: dict, report: MarketHealthReport):
@@ -334,6 +384,7 @@ def _check_macro_signals(macro_data, report: MarketHealthReport):
 
 # Breadth signals use `value` = count; points sublinear in count (see signal_points).
 _MAX_EPS_DISTRESS_BREADTH_POINTS = 30
+_MAX_DEATH_CROSS_BREADTH_POINTS = 25
 
 
 def _check_fundamental_signals(fundamentals_data: dict, report: MarketHealthReport):
@@ -434,6 +485,15 @@ def _breadth_points(n: int, cap: int = _MAX_EPS_DISTRESS_BREADTH_POINTS) -> int:
     return min(linear + bump, cap)
 
 
+def _lagging_breadth_points(n: int, cap: int = _MAX_DEATH_CROSS_BREADTH_POINTS) -> int:
+    """Sublinear points for lagging breadth signals (base weight 1.0, not 1.5)."""
+    if n <= 0:
+        return 0
+    linear = 10  # warning tier × 1.0 lagging weight
+    bump = int(5 * math.log1p(max(0, n - 1)) / math.log1p(25))
+    return min(linear + bump, cap)
+
+
 def signal_points(signal: RiskSignal) -> int:
     """Points this signal adds to the uncapped risk sum (breadth signals scaled)."""
     if signal.name in ("EPS revisions breadth", "Fundamental distress breadth"):
@@ -444,6 +504,10 @@ def signal_points(signal: RiskSignal) -> int:
         if signal.severity == "warning":
             return _breadth_points(n, cap=_MAX_EPS_DISTRESS_BREADTH_POINTS)
         return 2  # info tier, leading but cap at base info rule
+
+    if signal.name == "Death cross breadth":
+        n = int(signal.value) if signal.value else 1
+        return _lagging_breadth_points(n)
 
     weight = 1.5 if signal.signal_type == "leading" else 1.0
     if signal.severity == "critical":
@@ -485,12 +549,24 @@ def score_macro_layer_only(macro_data) -> tuple[int, int, list[ScoreContribution
 
 
 def _score_to_level(score: int) -> str:
+    """Map uncapped risk score to graduated severity level.
+
+    The scale extends beyond 100 to differentiate within crisis conditions.
+    Levels above 'critical' use the uncapped score so worsening conditions
+    are visible even after the 0-100 display cap.
+    """
+    if score >= 200:
+        return "catastrophic"
+    if score >= 150:
+        return "extreme"
+    if score >= 100:
+        return "severe"
     if score >= 80:
         return "critical"
-    elif score >= 60:
+    if score >= 60:
         return "high"
-    elif score >= 40:
+    if score >= 40:
         return "elevated"
-    elif score >= 20:
+    if score >= 20:
         return "moderate"
     return "low"

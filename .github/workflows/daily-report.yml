@@ -1,6 +1,13 @@
 name: Daily Market Report
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'config.yaml'
+      - 'requirements.txt'
+      - '.github/workflows/daily-report.yml'
   schedule:
     # 12:00 UTC = 7:00 AM ET (pre-market, weekdays)
     - cron: '0 12 * * 1-5'

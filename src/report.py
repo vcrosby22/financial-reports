@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from rich.console import Console
 
 from .analysis.bond_bank_narrative import build_bond_bank_friend_html
+from .personal.historical import CRASHES, crash_comparison_for_dashboard
 from .analysis.memory import build_trend_context
 from .analysis.opportunities import Opportunity, screen_opportunities
 from .analysis.risk import (
@@ -139,8 +140,13 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         crypto = fetch_crypto_data(watchlist["crypto"])
     console.print("  Forex...")
     forex = fetch_forex_data(watchlist.get("forex", []))
+    commodities = []
+    commodity_tickers = config.get("commodities", []) or watchlist.get("commodities", [])
+    if commodity_tickers:
+        console.print("  Commodities (oil)...")
+        commodities = fetch_multiple(commodity_tickers, asset_type="commodity")
 
-    market_data = {"indices": indices, "stocks": stocks, "etfs": etfs, "crypto": crypto, "forex": forex}
+    market_data = {"indices": indices, "stocks": stocks, "etfs": etfs, "crypto": crypto, "forex": forex, "commodities": commodities}
 
     console.print("  Macro indicators (FRED)...")
     macro_data = fetch_macro_data()
@@ -158,7 +164,7 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     console.print("  Saving snapshots...")
     init_db()
     session = get_session()
-    for category in ["indices", "stocks", "etfs", "crypto", "forex"]:
+    for category in ["indices", "stocks", "etfs", "crypto", "forex", "commodities"]:
         for item in market_data.get(category, []):
             snapshot = MarketSnapshot(
                 ticker=item["ticker"],
@@ -243,29 +249,50 @@ def _build_html(
     risk_color = {
         "low": "#22c55e", "moderate": "#eab308", "elevated": "#f97316",
         "high": "#ef4444", "critical": "#dc2626",
+        "severe": "#991b1b", "extreme": "#7f1d1d", "catastrophic": "#450a0a",
     }.get(health.overall_risk, "#6b7280")
 
     conf_color = {"high": "#22c55e", "medium": "#eab308", "low": "#ef4444"}.get(health.confidence, "#6b7280")
 
     guidance = get_position_guidance(health.overall_risk)
 
+    indices = market_data.get("indices", [])
+    commodities = market_data.get("commodities", [])
+    vix_data = next((i for i in indices if i.get("ticker") == "^VIX"), None)
+    sp500_kpi = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
+    oil_kpi = next((i for i in commodities if i.get("ticker") == "BZ=F"), None) if commodities else None
+
     sections = []
+    sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi))
+    sections.append('<div id="risk"></div>')
     sections.append(_section_risk_summary(health, risk_color, conf_color, guidance))
     sections.append(_section_score_attribution(health))
     sections.append(_section_risk_legend(health))
+    sections.append('<div id="markets"></div>')
     sections.append(_section_market_table(market_data))
     if macro_data and macro_data.indicators:
+        sections.append('<div id="macro"></div>')
         sections.append(_section_macro(macro_data))
     sections.append(_section_authoritative_sources())
     if fundamentals:
         name_lookup = {item["ticker"]: item.get("name", item["ticker"])
                        for cat in market_data.values() if isinstance(cat, list)
                        for item in cat if isinstance(item, dict) and "ticker" in item}
+        sections.append('<div id="fundamentals"></div>')
         sections.append(_section_fundamentals(fundamentals, name_lookup))
     if opportunities:
+        sections.append('<div id="opportunities"></div>')
         sections.append(_section_opportunities(opportunities, health))
+    sections.append('<div id="signals"></div>')
     sections.append(_section_signals(health))
+    sections.append('<div id="bonds-banks"></div>')
     sections.append(_section_bond_bank_plain_english(macro_data))
+    sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
+    sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
+    sections.append('<div id="historical"></div>')
+    sections.append(_section_historical_parallels(sp500_price))
+    sections.append('<div id="supply-chain"></div>')
+    sections.append(_section_supply_chain())
     if trend_context:
         sections.append(_section_trend_context(trend_context))
 
@@ -571,6 +598,31 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   }}
   .table-scroll.wide-min > table {{ min-width: 20rem; }}
 }}
+.nav-bar {{
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0; margin: 0 -2rem 1rem -2rem;
+  display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem;
+  justify-content: center;
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}}
+.nav-bar a {{
+  color: var(--cyan); text-decoration: none; font-size: 0.75rem;
+  font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 0.35rem;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap; transition: background 0.15s;
+}}
+.nav-bar a:hover {{ background: var(--surface); }}
+@media (max-width: 768px) {{
+  .nav-bar {{
+    margin: 0 -0.65rem 0.75rem -0.65rem;
+    padding: 0.4rem 0.5rem;
+    gap: 0.15rem 0.3rem;
+  }}
+  .nav-bar a {{ font-size: 0.65rem; padding: 0.25rem 0.4rem; }}
+}}
 </style>
 </head>
 <body>
@@ -584,6 +636,18 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 <div class="subtitle-line mobile-rotate-hint" aria-hidden="true">
 <strong style="color:var(--cyan);">Tip:</strong> Rotating to landscape gives wider tables and less side-to-side scrolling — optional; the report is usable in portrait too.
 </div>
+</div>
+
+<div class="nav-bar">
+  <a href="#risk">Risk</a>
+  <a href="#markets">Markets</a>
+  <a href="#macro">Macro</a>
+  <a href="#fundamentals">Fundamentals</a>
+  <a href="#opportunities">Opportunities</a>
+  <a href="#signals">Signals</a>
+  <a href="#bonds-banks">Bonds &amp; Banks</a>
+  <a href="#historical">Historical</a>
+  <a href="#supply-chain">Supply Chain</a>
 </div>
 
 {body}
@@ -633,13 +697,15 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
     """Top contributors to capped score; shows compression when raw sum &gt; 100."""
     rows = []
     for c in _health_score_contributions(health)[:15]:
+        ticker_display = escape(c.ticker) if c.ticker and c.ticker != "—" else ""
         rows.append(
             "<tr>"
             f"<td style=\"text-align:right;font-weight:600;\">{c.points}</td>"
             f"<td>{escape(c.name)}</td>"
+            f"<td>{ticker_display}</td>"
             f"<td>{escape(c.category)}</td>"
             f"<td>{escape(c.severity)}</td>"
-            f"<td>{escape(c.signal_type)}</td>"
+            f"<td class='col-m-hide'>{escape(c.signal_type)}</td>"
             "</tr>"
         )
     compression = ""
@@ -662,13 +728,13 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
 <div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="width:100%;font-size:0.8rem;">
 <thead><tr>
-<th style="text-align:right;padding-right:0.5rem;">Pts</th><th>Signal</th><th>Cat</th><th>Sev</th><th>Lead/Lag</th>
+<th style="text-align:right;padding-right:0.5rem;">Points</th><th>Signal</th><th>Ticker</th><th>Cat</th><th>Sev</th><th class='col-m-hide'>Lead/Lag</th>
 </tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
 <p style="font-size:0.75rem;color:var(--text-dim);margin-top:0.5rem;">
-Fundamental EPS / distress / insider impacts use <strong>breadth</strong> signals (scaled sublinearly),
+Death cross, EPS / distress / insider impacts use <strong>breadth</strong> signals (scaled sublinearly),
 not one row per watchlist ticker — see risk legend.
 </p>
 </div>
@@ -676,11 +742,100 @@ not one row per watchlist ticker — see risk legend.
 """
 
 
-def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_color: str, guidance: dict) -> str:
-    raw_line = ""
+def _section_kpi_cards(
+    health: MarketHealthReport,
+    risk_color: str,
+    sp500: dict | None,
+    vix: dict | None,
+    oil: dict | None,
+) -> str:
+    """Row of 4 KPI summary cards — the executive snapshot before any detail."""
     uncapped = _health_uncapped_score(health)
-    if uncapped != health.score:
-        raw_line = f'<div class="meta">Raw sum (pre-cap): <strong>{uncapped}</strong></div>'
+    score_display = str(uncapped) if uncapped > 100 else str(health.score)
+
+    def _kpi(label: str, value: str, color: str, sub: str = "") -> str:
+        return (
+            f'<div style="flex:1;min-width:140px;background:var(--surface);border-radius:0.75rem;'
+            f'padding:1rem 1.25rem;border-left:4px solid {color};">'
+            f'<div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;'
+            f'letter-spacing:0.05em;margin-bottom:0.3rem;">{label}</div>'
+            f'<div style="font-size:1.8rem;font-weight:700;color:{color};line-height:1.1;">{value}</div>'
+            f'{"<div style=font-size:0.8rem;color:var(--text-dim);margin-top:0.2rem;>" + sub + "</div>" if sub else ""}'
+            f'</div>'
+        )
+
+    cards = [_kpi("Risk Level", health.overall_risk.upper(), risk_color, f"Score: {score_display}")]
+
+    if sp500 and sp500.get("price"):
+        chg = sp500.get("change_1d", 0) or 0
+        arrow = "&#9650;" if chg >= 0 else "&#9660;"
+        chg_color = "var(--green)" if chg >= 0 else "var(--red)"
+        cards.append(_kpi(
+            "S&amp;P 500",
+            f"{sp500['price']:,.0f}",
+            chg_color,
+            f"{arrow} {chg:+.2f}%",
+        ))
+
+    if vix and vix.get("price"):
+        vix_val = vix["price"]
+        vix_color = "#22c55e" if vix_val < 20 else "#eab308" if vix_val < 30 else "#f97316" if vix_val < 40 else "#ef4444"
+        cards.append(_kpi("VIX", f"{vix_val:.1f}", vix_color, "Fear Index"))
+
+    if oil and oil.get("price"):
+        oil_color = "#22c55e" if oil["price"] < 80 else "#eab308" if oil["price"] < 100 else "#f97316" if oil["price"] < 130 else "#ef4444"
+        cards.append(_kpi("Brent Crude", f"${oil['price']:.2f}", oil_color, "per barrel"))
+
+    return (
+        f'<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">'
+        + "".join(cards)
+        + '</div>'
+    )
+
+
+def _risk_gauge_html(uncapped: int) -> str:
+    """CSS-only gauge bar showing where the risk score sits on the extended scale."""
+    display_max = max(uncapped, 200)
+    pct = min(uncapped / display_max * 100, 100)
+    segments = [
+        (20 / display_max * 100, "#22c55e", "LOW"),
+        (20 / display_max * 100, "#eab308", "MOD"),
+        (20 / display_max * 100, "#f97316", "ELEV"),
+        (20 / display_max * 100, "#ef4444", "HIGH"),
+        (20 / display_max * 100, "#dc2626", "CRIT"),
+    ]
+    if display_max > 100:
+        segments.append((50 / display_max * 100, "#991b1b", "SEVERE"))
+    if display_max > 150:
+        segments.append((50 / display_max * 100, "#7f1d1d", "EXTREME"))
+    if display_max > 200:
+        segments.append((100 / display_max * 100, "#450a0a", "CATAST"))
+
+    gradient_parts = []
+    pos = 0
+    for width, color, _ in segments:
+        gradient_parts.append(f"{color} {pos:.1f}%, {color} {pos + width:.1f}%")
+        pos += width
+
+    gradient = ", ".join(gradient_parts)
+    return f"""<div style="position:relative;height:24px;border-radius:12px;overflow:hidden;
+      background:linear-gradient(to right, {gradient});margin:0.5rem 0;">
+  <div style="position:absolute;left:{pct:.1f}%;top:0;bottom:0;width:3px;background:white;
+    box-shadow:0 0 6px rgba(255,255,255,0.8);transform:translateX(-50%);"></div>
+  <div style="position:absolute;left:{pct:.1f}%;top:-2px;transform:translateX(-50%);
+    font-size:0.65rem;font-weight:700;color:white;text-shadow:0 0 4px #000;">▼</div>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:0.6rem;color:var(--text-dim);padding:0 2px;">
+  <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span>
+  {"<span>150</span>" if display_max > 100 else ""}{"<span>200+</span>" if display_max > 150 else ""}
+</div>"""
+
+
+def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_color: str, guidance: dict) -> str:
+    uncapped = _health_uncapped_score(health)
+    score_display = f"{uncapped}" if uncapped > 100 else f"{health.score}"
+    score_label = f"Score (uncapped)" if uncapped > 100 else "Score / 100"
+    gauge = _risk_gauge_html(uncapped)
     return f"""
 <div class="risk-banner">
   <div>
@@ -688,23 +843,26 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     <div style="color: var(--text-dim); font-size: 0.8rem;">Risk Level</div>
   </div>
   <div>
-    <div class="level">{health.score}</div>
-    <div style="color: var(--text-dim); font-size: 0.8rem;">Score / 100</div>
+    <div class="level">{score_display}</div>
+    <div style="color: var(--text-dim); font-size: 0.8rem;">{score_label}</div>
   </div>
   <div>
     <div class="level" style="color: {conf_color}">{health.confidence.upper()}</div>
     <div style="color: var(--text-dim); font-size: 0.8rem;">Data completeness</div>
   </div>
   <div style="flex-grow: 1;">
-    <div class="meta">
+    {gauge}
+    <div class="meta" style="margin-top: 0.4rem;">
       <span>Critical: {health.critical_count}</span>
       <span>Warnings: {health.warning_count}</span>
       <span>Leading: {health.leading_signal_count}</span>
     </div>
     <div class="meta" style="margin-top: 0.3rem;">
-      Position guidance: <strong>{guidance['max_position']}</strong> &nbsp;|&nbsp; Stop-loss: {guidance['stop_loss']}
+      Position size: <strong>{guidance['max_position']}</strong> &nbsp;|&nbsp; Stop-loss: <strong>{guidance['stop_loss']}</strong>
     </div>
-    {raw_line}
+    <div class="meta" style="margin-top: 0.25rem; color: var(--text-dim); font-size: 0.78rem; line-height: 1.5;">
+      {guidance.get('explanation', '')}
+    </div>
     {"<div class='meta' style='margin-top:0.3rem;color:var(--yellow)'>Data gaps: " + ", ".join(health.data_sources_missing) + "</div>" if health.data_sources_missing else ""}
   </div>
 </div>"""
@@ -714,27 +872,29 @@ def _section_risk_legend(health: MarketHealthReport) -> str:
     active_level = health.overall_risk
 
     levels = [
-        ("CRITICAL", "80–100", "#dc2626",
-         "Multiple severe risk signals firing simultaneously. This is a defensive posture — "
-         "avoid new positions, prioritize capital preservation, increase cash allocation. "
-         "At least one critical signal (e.g. yield curve inversion, VIX crisis, consumer confidence collapse) "
-         "is active alongside multiple warnings."),
+        ("CATASTROPHIC", "200+", "#450a0a",
+         "Unprecedented convergence of risk signals. All major risk categories are in crisis. "
+         "This level has never been sustained in the modern era."),
+        ("EXTREME", "150–199", "#7f1d1d",
+         "Broad systemic failure signals across financial, commodity, and macro dimensions. "
+         "Maximum defensive posture: cash, short-duration treasuries, zero equity exposure."),
+        ("SEVERE", "100–149", "#991b1b",
+         "Multiple compounding crises active. The score exceeds 100 because more risk signals "
+         "are firing than the baseline scale anticipated. Beyond critical — conditions are still deteriorating."),
+        ("CRITICAL", "80–99", "#dc2626",
+         "Multiple severe risk signals firing simultaneously. Defensive posture — "
+         "avoid new positions, prioritize capital preservation, increase cash allocation."),
         ("HIGH", "60–79", "#ef4444",
          "Significant risk signals across multiple categories. Reduce exposure to risk assets, "
-         "tighten stop-losses, and size any new positions very small (0.5–1% max). "
-         "The market is under clear stress but not yet in crisis territory."),
+         "tighten stop-losses, and size any new positions very small (0.5–1% max)."),
         ("ELEVATED", "40–59", "#f97316",
-         "Several warning signals are active. The market is showing signs of strain — "
-         "proceed with caution, favor quality over speculation, and keep position sizes moderate (1–3%). "
-         "This is the \"pay attention\" zone."),
+         "Several warning signals are active. Proceed with caution, favor quality over speculation, "
+         "and keep position sizes moderate (1–3%)."),
         ("MODERATE", "20–39", "#eab308",
          "A few risk signals are present but the market is broadly functional. "
-         "Normal investing applies with standard position sizing (3–5%). "
-         "Stay aware of the flagged signals but no defensive action needed yet."),
+         "Normal investing with standard position sizing (3–5%)."),
         ("LOW", "0–19", "#22c55e",
-         "Minimal risk signals detected. Market conditions are calm across technical, macro, and "
-         "fundamental indicators. Standard investing with full position sizing. "
-         "This is the environment where long-term positions are most confidently opened."),
+         "Minimal risk signals detected. Market conditions are calm. Standard investing with full position sizing."),
     ]
 
     level_rows = []
@@ -869,9 +1029,34 @@ def _market_category_table_rows(items: list) -> list[str]:
     return out
 
 
+def _key_movers(items: list, max_summary: int = 12) -> tuple[list, list]:
+    """Split items into key movers (summary) and the rest (full)."""
+    if len(items) <= max_summary:
+        return items, []
+
+    scored = []
+    for item in items:
+        s = 0
+        chg = abs(item.get("change_pct_1d") or 0)
+        s += chg * 2
+        rsi = item.get("rsi_14")
+        if rsi and (rsi >= 70 or rsi <= 30):
+            s += 5
+        signals = item.get("signals", [])
+        if isinstance(signals, list):
+            s += len(signals) * 3
+        scored.append((s, item))
+
+    scored.sort(key=lambda x: -x[0])
+    summary = [item for _, item in scored[:max_summary]]
+    rest = [item for _, item in scored[max_summary:]]
+    return summary, rest
+
+
 def _section_market_table(market_data: dict) -> str:
     categories = [
         ("indices", "Indices"),
+        ("commodities", "Commodities"),
         ("stocks", "Stocks"),
         ("etfs", "ETFs"),
         ("crypto", "Crypto"),
@@ -901,8 +1086,29 @@ def _section_market_table(market_data: dict) -> str:
         items = market_data.get(category, [])
         if not items:
             continue
-        rows_html = "".join(_market_category_table_rows(items))
-        parts.append(_collapsible(f"{label} ({len(items)})", table_head + rows_html + table_tail))
+
+        if category in ("stocks", "etfs") and len(items) > 12:
+            summary, rest = _key_movers(items)
+            summary_rows = "".join(_market_category_table_rows(summary))
+            rest_rows = "".join(_market_category_table_rows(rest))
+            content = (
+                f'<div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.5rem;">'
+                f'Showing {len(summary)} key movers (biggest moves + signals). '
+                f'{len(rest)} more assets available below.</div>'
+                + table_head + summary_rows + table_tail
+            )
+            if rest:
+                content += (
+                    f'<details style="margin-top:0.5rem;">'
+                    f'<summary style="cursor:pointer;color:var(--cyan);font-size:0.8rem;font-weight:600;">'
+                    f'Show all {len(items)} {label.lower()} ▸</summary>'
+                    + table_head + rest_rows + table_tail
+                    + '</details>'
+                )
+            parts.append(_collapsible(f"{label} ({len(items)})", content))
+        else:
+            rows_html = "".join(_market_category_table_rows(items))
+            parts.append(_collapsible(f"{label} ({len(items)})", table_head + rows_html + table_tail))
 
     return "\n".join(parts) + _glossary()
 
@@ -1265,6 +1471,7 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
     market_risk_color = {
         "low": "var(--green)", "moderate": "var(--yellow)", "elevated": "var(--orange)",
         "high": "var(--red)", "critical": "var(--red)",
+        "severe": "var(--red)", "extreme": "var(--red)", "catastrophic": "var(--red)",
     }.get(health.overall_risk, "var(--text)")
 
     long_count = len(longs)
@@ -1330,6 +1537,109 @@ def _section_signals(health: MarketHealthReport) -> str:
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>"""
+    )
+
+
+def _section_historical_parallels(sp500_price: float | None) -> str:
+    """Public-safe section comparing current situation to historical crashes."""
+    peak = 6900
+    if sp500_price:
+        decline_pct = ((sp500_price - peak) / peak) * 100
+    else:
+        decline_pct = -7.5
+
+    rows = []
+    for crash in CRASHES:
+        if crash.name.startswith("2026"):
+            continue
+        rec = f"{crash.months_to_recovery:.0f} months" if crash.months_to_recovery else "—"
+        oil_tag = '<span style="color:var(--orange);">Yes</span>' if crash.oil_shock else "No"
+        rows.append(
+            f"<tr><td>{escape(crash.name)}</td>"
+            f"<td style='text-align:right;color:var(--red);'>{crash.decline_pct:.1f}%</td>"
+            f"<td style='text-align:right;'>{crash.days_to_bottom}</td>"
+            f"<td style='text-align:right;'>{rec}</td>"
+            f"<td>{oil_tag}</td></tr>"
+        )
+
+    current_bar_pct = min(abs(decline_pct) / 90 * 100, 100)
+    comparison = crash_comparison_for_dashboard(sp500_price or (peak * (1 + decline_pct / 100)), peak)
+    best_match = comparison.get("best_match")
+    match_name = best_match.name if best_match else "1973-74 Oil Crisis"
+
+    return _collapsible(
+        f"Crisis Context: Historical Parallels — current decline {decline_pct:+.1f}%, closest match: {match_name}",
+        f"""<div class="card">
+<div style="margin-bottom:1rem;">
+  <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.3rem;">Current S&amp;P 500 decline from Jan 2026 peak (~6,900)</div>
+  <div style="display:flex;align-items:center;gap:0.75rem;">
+    <div style="flex-grow:1;height:20px;background:var(--surface);border-radius:10px;overflow:hidden;">
+      <div style="width:{current_bar_pct:.1f}%;height:100%;background:linear-gradient(to right,#eab308,#ef4444,#dc2626);border-radius:10px;"></div>
+    </div>
+    <span style="font-weight:700;color:var(--red);min-width:4rem;text-align:right;">{decline_pct:+.1f}%</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-dim);padding:0 2px;margin-top:2px;">
+    <span>0%</span><span>-10%</span><span>-20%</span><span>-30%</span><span>-50%</span><span>-90%</span>
+  </div>
+</div>
+<table>
+<thead><tr><th>Crash</th><th style="text-align:right">Decline</th><th style="text-align:right">Days to Bottom</th><th style="text-align:right">Recovery</th><th>Oil Shock?</th></tr></thead>
+<tbody>
+{"".join(rows)}
+</tbody>
+</table>
+<div style="margin-top:1rem;font-size:0.85rem;color:var(--text-dim);line-height:1.6;">
+<strong>Key finding:</strong> Across 8 major US crashes (1907-2020), the market recovered every time.
+The only crash where early withdrawal would have been correct was 1929 — under conditions (no FDIC, no SEC, no Fed backstop)
+that cannot recur in the modern financial system. Average oil-shock recovery: {comparison.get("avg_oil_crash_recovery_months", 0):.0f} months.
+</div>
+</div>""",
+    )
+
+
+def _section_supply_chain() -> str:
+    """Public-safe supply chain risk monitor — no personal data."""
+    cascade_stages = [
+        ("Week 1-2", "Oil Price Shock", "Brent crude spikes, WTI follows. Gasoline prices at pump rise within days.", True),
+        ("Month 1-2", "Energy Cost Cascade", "Natural gas prices spike (LNG rerouting). Electricity costs rise in Europe/Asia. Industrial production slows.", True),
+        ("Month 2-4", "Helium &amp; Semiconductor Squeeze", "Helium spot prices surge. Semiconductor fabs reduce output. Lead times extend to 6-12 months for advanced chips.", True),
+        ("Month 3-6", "Fertilizer &amp; Food Pressure", "Urea/ammonia prices spike. Spring planting disrupted. Food inflation becomes visible in grocery prices.", True),
+        ("Month 4-8", "Pharmaceutical Delays", "India flags raw material shortages. Generic drug supply chains lengthen. Some medications face spot shortages.", False),
+        ("Month 6-12", "Industrial Slowdown", "Petrochemical feedstock shortages. Plastics and packaging costs rise. Manufacturing slows in chemical-dependent sectors.", False),
+        ("Year 1-3", "Infrastructure Rebuild", "Even after ceasefire, Ras Laffan and Gulf infrastructure require years to rebuild. LNG and helium supply remain constrained.", False),
+        ("Year 3-5+", "New Supply Equilibrium", "Alternative supply chains mature. New helium plants (US, Russia, Algeria) reach capacity. Markets find new equilibrium at higher price levels.", False),
+    ]
+
+    stage_rows = []
+    for timeframe, name, desc, is_active in cascade_stages:
+        status = '<span style="color:var(--red);font-weight:600;">ACTIVE</span>' if is_active else '<span style="color:var(--text-dim);">Projected</span>'
+        bg = "background:rgba(239,68,68,0.08);" if is_active else ""
+        stage_rows.append(
+            f'<tr style="{bg}"><td style="white-space:nowrap;font-weight:600;">{timeframe}</td>'
+            f"<td><strong>{name}</strong><br><span style='font-size:0.8rem;color:var(--text-dim);'>{desc}</span></td>"
+            f"<td>{status}</td></tr>"
+        )
+
+    return _collapsible(
+        "Crisis Context: Supply Chain Cascade — Strait of Hormuz",
+        f"""<div class="card">
+<div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.5;">
+The Strait of Hormuz carries ~21% of global oil, ~25% of global LNG, and hosts the world's largest helium processing
+facility at Ras Laffan, Qatar. Disruption creates a cascading timeline of impacts far beyond oil prices.
+This is publicly sourced information — not personal financial data.
+</div>
+<table>
+<thead><tr><th>Timeframe</th><th>Impact</th><th>Status</th></tr></thead>
+<tbody>
+{"".join(stage_rows)}
+</tbody>
+</table>
+<div style="margin-top:1rem;font-size:0.8rem;color:var(--text-dim);line-height:1.5;">
+<strong>Why this matters for markets:</strong> The 1973 oil crisis caused a 48% market decline and 8-year recovery.
+The current situation is broader — it affects energy, semiconductors, food, and pharmaceuticals simultaneously.
+Historical parallel suggests a longer recovery timeline than a pure oil shock.
+</div>
+</div>""",
     )
 
 
