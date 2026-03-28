@@ -105,14 +105,14 @@ def _fred_observations_html(macro_data: MacroSnapshot | None) -> str:
         if macro_data.fred_observations_through:
             d = macro_data.fred_observations_through.strftime("%B %d, %Y")
             return (
-                f'<div class="subtitle-line">Macro (FRED) observations through: <strong>{escape(d)}</strong> '
+                f'<div class="subtitle-line subtitle-detail">Macro (FRED) observations through: <strong>{escape(d)}</strong> '
                 f"(release cadence varies by series).</div>"
             )
         return (
-            '<div class="subtitle-line">Macro (FRED): loaded, but observation dates unavailable.</div>'
+            '<div class="subtitle-line subtitle-detail">Macro (FRED): loaded, but observation dates unavailable.</div>'
         )
     return (
-        '<div class="subtitle-line">Macro (FRED): not in this snapshot '
+        '<div class="subtitle-line subtitle-detail">Macro (FRED): not in this snapshot '
         "(missing API key or fetch failed).</div>"
     )
 
@@ -344,6 +344,7 @@ h2 {{
 .subtitle {{ color: var(--text-dim); font-size: 0.85rem; margin-bottom: 1.5rem; }}
 .subtitle-stack {{ display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.5rem; }}
 .subtitle-line {{ color: var(--text-dim); font-size: 0.85rem; line-height: 1.45; }}
+.subtitle-detail {{ display: none; }}
 .card {{
   background: var(--surface); border-radius: 0.75rem;
   padding: 1rem; margin-bottom: 1rem;
@@ -503,6 +504,13 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   min-width: 0; width: 100%; max-width: 100%;
 }}
 .col-m-hide {{ display: none !important; }}
+.kpi-row {{
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}}
+.kpi-row > div {{
+  min-width: 0;
+}}
 .opp-signal-grid {{
   display: grid; grid-template-columns: 1fr;
   gap: 1rem; margin-bottom: 0.75rem;
@@ -513,14 +521,16 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   border-bottom: 1px solid var(--border);
   padding: 0.4rem 0.5rem;
   margin: 0 calc(var(--pad-inline) * -1) 0.75rem calc(var(--pad-inline) * -1);
-  display: flex; flex-wrap: wrap; gap: 0.15rem 0.3rem;
-  justify-content: center;
+  display: flex; flex-wrap: nowrap; gap: 0.15rem 0.3rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
   padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
 }}
+.nav-bar::-webkit-scrollbar {{ display: none; }}
 .nav-bar a {{
-  color: var(--cyan); text-decoration: none; font-size: 0.65rem;
-  font-weight: 600; padding: 0.25rem 0.4rem; border-radius: 0.35rem;
+  color: var(--cyan); text-decoration: none; font-size: 0.7rem;
+  font-weight: 600; padding: 0.4rem 0.55rem; border-radius: 0.35rem;
   text-transform: uppercase; letter-spacing: 0.04em;
   white-space: nowrap; transition: background 0.15s;
   min-height: 44px; display: inline-flex; align-items: center;
@@ -550,10 +560,13 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .section-header {{ padding: 0.75rem 1rem; min-height: auto; }}
   .section-body {{ padding: 0 1rem 1rem; }}
   .mobile-rotate-hint {{ display: none; }}
+  .subtitle-detail {{ display: block; }}
   .col-m-hide {{ display: table-cell !important; }}
   .table-scroll.wide-min > table {{ min-width: 30rem; }}
   .opp-signal-grid {{ grid-template-columns: 1fr 1fr; }}
+  .kpi-row {{ grid-template-columns: repeat(4, 1fr); gap: 1rem; }}
   .nav-bar {{
+    flex-wrap: wrap; overflow-x: visible; justify-content: center;
     padding: 0.5rem 0; gap: 0.25rem 0.5rem;
     padding-left: max(1rem, env(safe-area-inset-left, 0px));
     padding-right: max(1rem, env(safe-area-inset-right, 0px));
@@ -575,8 +588,8 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 <div class="subtitle-line">Market prices & technicals as of: <strong>{escape(market_asof_label)}</strong></div>
 {fred_block}
 <div class="subtitle-line">Snapshot generated: <strong>{escape(now)}</strong> (HTML build / CI time — not the same as market close).</div>
-<div class="subtitle-line">Data layers: Technical + {"Macro (FRED) + " if macro_data and macro_data.indicators else ""}{"Fundamentals" if fundamentals else "Technical only"}.</div>
-<div class="subtitle-line" id="viewer-opened"></div>
+<div class="subtitle-line subtitle-detail">Data layers: Technical + {"Macro (FRED) + " if macro_data and macro_data.indicators else ""}{"Fundamentals" if fundamentals else "Technical only"}.</div>
+<div class="subtitle-line subtitle-detail" id="viewer-opened"></div>
 <div class="subtitle-line mobile-rotate-hint" aria-hidden="true">
 <strong style="color:var(--cyan);">Tip:</strong> Rotating to landscape gives wider tables and less side-to-side scrolling — optional; the report is usable in portrait too.
 </div>
@@ -693,7 +706,7 @@ def _severity_tag_html(severity: str, display: str | None = None) -> str:
 
 def _severity_legend_html() -> str:
     """One-line traffic-light key so hue matches level without reading every badge."""
-    return """<div role="group" aria-label="Severity color key" style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem 0.65rem;font-size:0.72rem;color:var(--text-dim);margin:0 0 0.75rem 0;line-height:1.5;">
+    return """<div role="group" aria-label="Severity color key" style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem 0.65rem;font-size:0.75rem;color:var(--text-dim);margin:0 0 0.75rem 0;line-height:1.5;">
 <span style="font-weight:600;color:var(--text);">Severity key —</span>
 <span class="tag tag-critical">critical</span><span>highest</span>
 <span aria-hidden="true" style="opacity:0.45;">·</span>
@@ -784,12 +797,12 @@ def _section_kpi_cards(
 
     def _kpi(label: str, value: str, color: str, sub: str = "") -> str:
         return (
-            f'<div style="flex:1;min-width:140px;background:var(--surface);border-radius:0.75rem;'
-            f'padding:1rem 1.25rem;border-left:4px solid {color};">'
+            f'<div style="background:var(--surface);border-radius:0.75rem;'
+            f'padding:0.75rem 1rem;border-left:4px solid {color};">'
             f'<div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;'
             f'letter-spacing:0.05em;margin-bottom:0.3rem;">{label}</div>'
             f'<div style="font-size:1.8rem;font-weight:700;color:{color};line-height:1.1;">{value}</div>'
-            f'{"<div style=font-size:0.8rem;color:var(--text-dim);margin-top:0.2rem;>" + sub + "</div>" if sub else ""}'
+            f'{"<div style=\"font-size:0.8rem;color:var(--text-dim);margin-top:0.2rem;\">" + sub + "</div>" if sub else ""}'
             f'</div>'
         )
 
@@ -816,7 +829,7 @@ def _section_kpi_cards(
         cards.append(_kpi("Brent Crude", f"${oil['price']:.2f}", oil_color, "per barrel"))
 
     return (
-        f'<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">'
+        '<div class="kpi-row">'
         + "".join(cards)
         + '</div>'
     )
@@ -852,9 +865,9 @@ def _risk_gauge_html(uncapped: int) -> str:
   <div style="position:absolute;left:{pct:.1f}%;top:0;bottom:0;width:3px;background:white;
     box-shadow:0 0 6px rgba(255,255,255,0.8);transform:translateX(-50%);"></div>
   <div style="position:absolute;left:{pct:.1f}%;top:-2px;transform:translateX(-50%);
-    font-size:0.65rem;font-weight:700;color:white;text-shadow:0 0 4px #000;">▼</div>
+    font-size:0.75rem;font-weight:700;color:white;text-shadow:0 0 4px #000;">▼</div>
 </div>
-<div style="display:flex;justify-content:space-between;font-size:0.6rem;color:var(--text-dim);padding:0 2px;">
+<div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-dim);padding:0 2px;">
   <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span>
   {"<span>150</span>" if display_max > 100 else ""}{"<span>200+</span>" if display_max > 150 else ""}
 </div>"""
@@ -965,13 +978,13 @@ def _section_risk_legend(health: MarketHealthReport) -> str:
         highlight = "border: 1px solid " + color + "; background: #1e293b;" if is_active else ""
         arrow = " ◀ CURRENT" if is_active else ""
         level_rows.append(
-            f'<div style="display:flex;gap:1rem;align-items:flex-start;padding:0.75rem;border-radius:0.5rem;{highlight}">'
+            f'<div style="display:flex;flex-wrap:wrap;gap:0.5rem 1rem;align-items:flex-start;padding:0.75rem;border-radius:0.5rem;{highlight}">'
             f'<div style="min-width:5.5rem;text-align:center;">'
             f'<span style="color:{color};font-weight:700;font-size:0.85rem;">{name}</span>'
-            f'<div style="color:var(--text-dim);font-size:0.7rem;">{score_range}</div>'
+            f'<div style="color:var(--text-dim);font-size:0.75rem;">{score_range}</div>'
             f'</div>'
             f'<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.5;">{description}'
-            f'{"<span style=color:" + color + ";font-weight:600>" + arrow + "</span>" if is_active else ""}'
+            f'{"<span style=\"color:" + color + ";font-weight:600\">" + arrow + "</span>" if is_active else ""}'
             f'</div></div>'
         )
 
@@ -989,10 +1002,10 @@ def _section_risk_legend(health: MarketHealthReport) -> str:
         highlight = "border: 1px solid " + color + "; background: #1e293b;" if is_active else ""
         arrow = " ◀ CURRENT" if is_active else ""
         conf_rows.append(
-            f'<div style="display:flex;gap:1rem;align-items:flex-start;padding:0.6rem;border-radius:0.5rem;{highlight}">'
+            f'<div style="display:flex;flex-wrap:wrap;gap:0.5rem 1rem;align-items:flex-start;padding:0.6rem;border-radius:0.5rem;{highlight}">'
             f'<span style="color:{color};font-weight:700;font-size:0.8rem;min-width:4.5rem;text-align:center;">{name}</span>'
             f'<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.5;">{description}'
-            f'{"<span style=color:" + color + ";font-weight:600>" + arrow + "</span>" if is_active else ""}'
+            f'{"<span style=\"color:" + color + ";font-weight:600\">" + arrow + "</span>" if is_active else ""}'
             f'</div></div>'
         )
 
@@ -1355,7 +1368,7 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
         change = f"{ind.change:+,.2f}" if ind.change is not None else "—"
         return (
             f"<tr><td><strong>{escape(ind.name)}</strong>"
-            f"<br><span style='font-size:0.7rem;color:var(--text-dim);'>{escape(ind.series_id)}</span></td>"
+            f"<br><span style='font-size:0.75rem;color:var(--text-dim);'>{escape(ind.series_id)}</span></td>"
             f"<td style='text-align:right'>{ind.value:,.2f}</td>"
             f"<td class='col-m-hide' style='text-align:right'>{change}</td>"
             f"<td><span class='tag {signal_class}'>{ind.signal}</span></td>"
@@ -1498,14 +1511,14 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
         return f"""
 <div class="card" style="border-left:3px solid {rc};">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
-    <div style="display:flex;align-items:center;gap:0.75rem;">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem 0.75rem;">
       <span style="font-size:1.3rem;color:{direction_color};">{direction_icon}</span>
       <span style="font-size:1.1rem;font-weight:700;">{escape(opp.ticker)}</span>
       <span style="font-size:0.85rem;color:var(--text-dim);">{escape(opp.name)}</span>
       <span class="tag tag-{"strong" if opp.direction == "long" else "critical"}">{opp.direction.upper()}</span>
       <span style="font-size:0.8rem;color:var(--text-dim);">{opp.horizon_label}</span>
     </div>
-    <div style="display:flex;gap:0.75rem;align-items:center;">
+    <div style="display:flex;flex-wrap:wrap;gap:0.35rem 0.75rem;align-items:center;">
       <span style="font-size:0.8rem;">Risk: <strong style="color:{rc};">{opp.risk_score}/10 ({opp.risk_label})</strong></span>
       <span style="font-size:0.8rem;">Confidence: <strong style="color:{cc};">{opp.confidence.upper()}</strong></span>
     </div>
@@ -1653,16 +1666,18 @@ def _section_historical_parallels(sp500_price: float | None) -> str:
     </div>
     <span style="font-weight:700;color:var(--red);min-width:4rem;text-align:right;">{decline_pct:+.1f}%</span>
   </div>
-  <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-dim);padding:0 2px;margin-top:2px;">
+  <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-dim);padding:0 2px;margin-top:2px;">
     <span>0%</span><span>-10%</span><span>-20%</span><span>-30%</span><span>-50%</span><span>-90%</span>
   </div>
 </div>
+<div class="table-scroll wide-min table-edge-hint sticky-first-col">
 <table>
 <thead><tr><th>Crash</th><th style="text-align:right">Decline</th><th style="text-align:right">Days to Bottom</th><th style="text-align:right">Recovery</th><th>Oil Shock?</th></tr></thead>
 <tbody>
 {"".join(rows)}
 </tbody>
 </table>
+</div>
 <div style="margin-top:1rem;font-size:0.85rem;color:var(--text-dim);line-height:1.6;">
 <strong>Key finding:</strong> Across 8 major US crashes (1907-2020), the market recovered every time.
 The only crash where early withdrawal would have been correct was 1929 — under conditions (no FDIC, no SEC, no Fed backstop)
@@ -1704,12 +1719,14 @@ The Strait of Hormuz carries ~21% of global oil, ~25% of global LNG, and hosts t
 facility at Ras Laffan, Qatar. Disruption creates a cascading timeline of impacts far beyond oil prices.
 This is publicly sourced information — not personal financial data.
 </div>
+<div class="table-scroll table-edge-hint">
 <table>
 <thead><tr><th>Timeframe</th><th>Impact</th><th>Status</th></tr></thead>
 <tbody>
 {"".join(stage_rows)}
 </tbody>
 </table>
+</div>
 <div style="margin-top:1rem;font-size:0.8rem;color:var(--text-dim);line-height:1.5;">
 <strong>Why this matters for markets:</strong> The 1973 oil crisis caused a 48% market decline and 8-year recovery.
 The current situation is broader — it affects energy, semiconductors, food, and pharmaceuticals simultaneously.
