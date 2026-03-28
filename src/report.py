@@ -25,6 +25,7 @@ from .analysis.risk import (
 from .config import load_config
 from .data.database import get_session, init_db
 from .data.models import MarketSnapshot
+from .data.risk_score_log import append_risk_score_log
 from .data.crypto import fetch_crypto_data
 from .data.forex import fetch_forex_data
 from .data.fundamentals import StockFundamentals, fetch_fundamentals_batch
@@ -208,6 +209,9 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         filepath = REPORTS_DIR / filename
 
     filepath.write_text(html)
+    log_path = append_risk_score_log(health)
+    if log_path:
+        console.print(f"[dim]Risk score log: {log_path}[/dim]")
     console.print(f"\n[bold green]Report saved: {filepath}[/bold green]")
 
     if open_browser:
@@ -264,35 +268,26 @@ def _build_html(
 
     sections = []
     sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi))
-    sections.append('<div id="risk"></div>')
     sections.append(_section_risk_summary(health, risk_color, conf_color, guidance))
     sections.append(_section_risk_score_reader_context(health))
     sections.append(_section_score_attribution(health))
     sections.append(_section_risk_legend(health))
-    sections.append('<div id="markets"></div>')
     sections.append(_section_market_table(market_data))
     if macro_data and macro_data.indicators:
-        sections.append('<div id="macro"></div>')
         sections.append(_section_macro(macro_data))
     sections.append(_section_authoritative_sources())
     if fundamentals:
         name_lookup = {item["ticker"]: item.get("name", item["ticker"])
                        for cat in market_data.values() if isinstance(cat, list)
                        for item in cat if isinstance(item, dict) and "ticker" in item}
-        sections.append('<div id="fundamentals"></div>')
         sections.append(_section_fundamentals(fundamentals, name_lookup))
     if opportunities:
-        sections.append('<div id="opportunities"></div>')
         sections.append(_section_opportunities(opportunities, health))
-    sections.append('<div id="signals"></div>')
     sections.append(_section_signals(health))
-    sections.append('<div id="bonds-banks"></div>')
     sections.append(_section_bond_bank_plain_english(macro_data))
     sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
     sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
-    sections.append('<div id="historical"></div>')
     sections.append(_section_historical_parallels(sp500_price))
-    sections.append('<div id="supply-chain"></div>')
     sections.append(_section_supply_chain())
     if trend_context:
         sections.append(_section_trend_context(trend_context))
@@ -307,6 +302,7 @@ def _build_html(
 <title>Market Report — data as of {escape(title_asof)}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231e293b'/><rect x='6' y='18' width='4' height='8' rx='1' fill='%233b82f6'/><rect x='14' y='12' width='4' height='14' rx='1' fill='%233b82f6'/><rect x='22' y='6' width='4' height='20' rx='1' fill='%2322c55e'/></svg>">
 <style>
+/* \u2500\u2500 Design tokens \u2500\u2500 */
 :root {{
   --bg: #0f172a;
   --surface: #1e293b;
@@ -320,59 +316,71 @@ def _build_html(
   --orange: #f97316;
   --blue: #3b82f6;
   --cyan: #06b6d4;
+  --pad-inline: clamp(0.5rem, -0.25rem + 2.5vw, 2rem);
+  --pad-block: clamp(0.65rem, -0.1rem + 2.5vw, 2rem);
 }}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html {{ -webkit-text-size-adjust: 100%; }}
+html {{ -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }}
+
+/* \u2500\u2500 Base: phone-first (360\u2013430 CSS px) \u2500\u2500 */
+.section-anchor {{ scroll-margin-top: 6rem; }}
 body {{
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   background: var(--bg); color: var(--text);
   line-height: 1.6;
-  padding: 2rem;
-  padding-left: max(2rem, env(safe-area-inset-left, 0px));
-  padding-right: max(2rem, env(safe-area-inset-right, 0px));
-  padding-bottom: max(2rem, env(safe-area-inset-bottom, 0px));
+  padding: var(--pad-block) var(--pad-inline);
+  padding-left: max(var(--pad-inline), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--pad-inline), env(safe-area-inset-right, 0px));
+  padding-bottom: max(var(--pad-block), env(safe-area-inset-bottom, 0px));
   max-width: 1400px; margin: 0 auto;
   overflow-x: hidden;
 }}
-h1 {{ font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }}
+h1 {{ font-size: clamp(1.15rem, 1rem + 0.75vw, 1.5rem); font-weight: 600; margin-bottom: 0.25rem; }}
 h2 {{
-  font-size: 1.1rem; font-weight: 600; color: var(--cyan);
+  font-size: clamp(0.95rem, 0.9rem + 0.25vw, 1.1rem); font-weight: 600; color: var(--cyan);
   border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;
-  margin: 2rem 0 1rem;
+  margin: 1.5rem 0 0.75rem;
 }}
 .subtitle {{ color: var(--text-dim); font-size: 0.85rem; margin-bottom: 1.5rem; }}
 .subtitle-stack {{ display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.5rem; }}
 .subtitle-line {{ color: var(--text-dim); font-size: 0.85rem; line-height: 1.45; }}
 .card {{
   background: var(--surface); border-radius: 0.75rem;
-  padding: 1.25rem; margin-bottom: 1rem;
+  padding: 1rem; margin-bottom: 1rem;
   border: 1px solid var(--border);
 }}
 .risk-banner {{
-  display: flex; align-items: center; gap: 2rem; flex-wrap: wrap;
-  padding: 1.5rem; border-radius: 0.75rem; margin-bottom: 1.5rem;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem;
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  border-radius: 0.75rem; margin-bottom: 1.5rem;
   background: var(--surface); border-left: 4px solid {risk_color};
 }}
 .risk-banner .level {{
-  font-size: 2rem; font-weight: 700; letter-spacing: 0.05em;
+  font-size: clamp(1.4rem, 1.2rem + 1vw, 2rem); font-weight: 700; letter-spacing: 0.05em;
 }}
 .risk-banner .meta {{ color: var(--text-dim); font-size: 0.85rem; }}
-.risk-banner .meta span {{ margin-right: 1.5rem; }}
+.risk-banner .meta span {{
+  display: inline-block; margin-right: 0.75rem; margin-bottom: 0.25rem;
+}}
 .stat {{
   display: inline-block; padding: 0.4rem 0.8rem; border-radius: 0.5rem;
   background: var(--surface2); font-size: 0.8rem; margin: 0.2rem;
 }}
 table {{
-  width: 100%; border-collapse: collapse; font-size: 0.85rem;
+  width: 100%; border-collapse: collapse; font-size: 0.8rem;
   margin-bottom: 0.5rem;
 }}
 th {{
-  text-align: left; padding: 0.6rem 0.75rem; color: var(--text-dim);
+  text-align: left; padding: 0.45rem 0.5rem; color: var(--text-dim);
   font-weight: 500; font-size: 0.75rem; text-transform: uppercase;
   letter-spacing: 0.05em; border-bottom: 1px solid var(--border);
 }}
 td {{
-  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--surface2);
+  padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--surface2);
+  word-break: break-word;
 }}
 tr:hover {{ background: var(--surface2); }}
 .section-label {{
@@ -390,7 +398,6 @@ tr:hover {{ background: var(--surface2); }}
   display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.25rem;
   font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
 }}
-/* Severity traffic-light: scan hue before reading (critical=red, warning=amber, info=calm green) */
 .tag-critical {{ background: #dc2626; color: #ffffff; border: 1px solid #f87171; box-shadow: 0 0 0 1px rgba(220,38,38,0.35); }}
 .tag-warning {{ background: #d97706; color: #fffbeb; border: 1px solid #fbbf24; }}
 .tag-info {{ background: #059669; color: #ecfdf5; border: 1px solid #34d399; }}
@@ -403,10 +410,9 @@ tr:hover {{ background: var(--surface2); }}
 .tag-unknown {{ background: var(--surface2); color: var(--text-dim); }}
 .footer {{
   margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border);
-  color: var(--text-dim); font-size: 0.75rem; line-height: 1.8;
+  color: var(--text-dim); font-size: 0.72rem; line-height: 1.65;
 }}
-.two-col {{ display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }}
-@media (max-width: 900px) {{ .two-col {{ grid-template-columns: 1fr; }} }}
+.two-col {{ display: grid; grid-template-columns: 1fr; gap: 1rem; }}
 pre {{
   background: var(--surface2); padding: 1rem; border-radius: 0.5rem;
   font-size: 0.8rem; overflow-x: auto; white-space: pre-wrap;
@@ -417,213 +423,149 @@ pre {{
   border-radius: 0.75rem; overflow: hidden;
 }}
 .section-header {{
-  cursor: pointer; padding: 0.75rem 1rem;
-  font-size: 1.05rem; font-weight: 600; color: var(--cyan);
+  cursor: pointer; padding: 0.85rem 0.75rem;
+  min-height: max(2.75rem, 44px);
+  font-size: clamp(0.9rem, 0.85rem + 0.2vw, 1.05rem); font-weight: 600; color: var(--cyan);
   background: var(--surface); list-style: none;
   display: flex; align-items: center; gap: 0.5rem;
+  line-height: 1.35;
 }}
 .section-header::-webkit-details-marker {{ display: none; }}
 .section-header::before {{
-  content: "▶"; font-size: 0.7rem; transition: transform 0.2s;
+  content: "\u25b6"; font-size: 0.7rem; transition: transform 0.2s;
   color: var(--text-dim);
 }}
 details[open] > .section-header::before {{ transform: rotate(90deg); }}
-.section-body {{ padding: 0 1rem 1rem; }}
+.section-body {{ padding: 0 0.65rem 0.85rem; }}
 .section-body .card {{ margin-bottom: 0.75rem; }}
 .section-body h2 {{ display: none; }}
 .section-body h3 {{ margin-top: 1rem; }}
-/* Banking & bonds — scannable nested details (inside plain-English card) */
 .bond-bank-intro {{ margin-bottom: 1rem; }}
 .bond-bank-intro-list {{
-  margin: 0;
-  padding-left: 1.25rem;
-  color: var(--text-dim);
-  font-size: 0.88rem;
-  line-height: 1.55;
+  margin: 0; padding-left: 1.25rem;
+  color: var(--text-dim); font-size: 0.88rem; line-height: 1.55;
 }}
 .bond-bank-intro-list li {{ margin-bottom: 0.45rem; }}
 .bond-bank-intro-list strong {{ color: var(--text); }}
-.bond-bank-scan {{
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}}
+.bond-bank-scan {{ display: flex; flex-direction: column; gap: 0.5rem; }}
 .bond-bank-item {{
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--surface2);
-  border-left: 3px solid var(--cyan);
+  border: 1px solid var(--border); border-radius: 0.5rem;
+  background: var(--surface2); border-left: 3px solid var(--cyan);
   overflow: hidden;
 }}
 .bond-bank-summary {{
-  cursor: pointer;
-  list-style: none;
+  cursor: pointer; list-style: none;
+  min-height: max(2.65rem, 44px);
   padding: 0.65rem 0.75rem;
-  font-size: 0.86rem;
-  line-height: 1.45;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  font-size: 0.86rem; line-height: 1.45;
+  display: flex; flex-wrap: wrap; align-items: center;
   gap: 0.4rem 0.5rem;
 }}
 .bond-bank-summary::-webkit-details-marker {{ display: none; }}
 .bond-bank-summary::before {{
-  content: "▶";
-  font-size: 0.65rem;
-  color: var(--text-dim);
-  flex-shrink: 0;
-  transition: transform 0.15s;
-  margin-right: 0.15rem;
+  content: "\u25b6"; font-size: 0.65rem;
+  color: var(--text-dim); flex-shrink: 0;
+  transition: transform 0.15s; margin-right: 0.15rem;
 }}
 details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 .bond-bank-item-body {{
   padding: 0 0.75rem 0.75rem 0.75rem;
   border-top: 1px solid var(--border);
-  font-size: 0.86rem;
-  color: var(--text-dim);
+  font-size: 0.86rem; color: var(--text-dim);
 }}
 .bond-bank-item-body p {{ margin: 0.55rem 0 0 0; }}
 .bond-bank-item-body p:first-child {{ margin-top: 0.45rem; }}
-/* Subtitle row: optional rotate hint (non-blocking); shown only on narrow viewports */
-.mobile-rotate-hint {{ display: none; }}
-/* Horizontal scroll for wide data tables (mobile-friendly) */
+.mobile-rotate-hint {{
+  display: block;
+  font-size: 0.78rem; color: var(--text-dim); line-height: 1.45;
+  padding: 0.35rem 0; border-left: 3px solid var(--cyan);
+  padding-left: 0.6rem; margin-top: 0.25rem;
+}}
 .table-scroll {{
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  width: 100%;
-  max-width: 100%;
-  margin-bottom: 0.5rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  width: 100%; max-width: 100%; margin-bottom: 0.5rem;
 }}
-/* Fade on right edge suggests more columns (mobile); subtle */
-@media (max-width: 768px) {{
-  .table-scroll.table-edge-hint {{
-    box-shadow: inset -12px 0 14px -12px rgba(0, 0, 0, 0.55);
-  }}
+.table-scroll.table-edge-hint {{
+  box-shadow: inset -12px 0 14px -12px rgba(0, 0, 0, 0.55);
 }}
-/* Sticky first column: row label stays visible while scrolling horizontally */
 .sticky-first-col table th:first-child,
 .sticky-first-col table td:first-child {{
-  position: sticky;
-  left: 0;
-  z-index: 2;
+  position: sticky; left: 0; z-index: 2;
   background: var(--surface);
   box-shadow: 4px 0 10px -4px rgba(0, 0, 0, 0.5);
 }}
-.sticky-first-col table thead th:first-child {{
-  z-index: 4;
-  background: var(--surface);
-}}
-.sticky-first-col tbody tr:hover td:first-child {{
-  background: var(--surface2);
-}}
-/* Wide data tables: horizontal scroll on small screens */
+.sticky-first-col table thead th:first-child {{ z-index: 4; background: var(--surface); }}
+.sticky-first-col tbody tr:hover td:first-child {{ background: var(--surface2); }}
 .table-scroll.wide-min > table {{
-  min-width: 36rem;
-  width: max-content;
-  max-width: none;
+  min-width: 20rem; width: max-content; max-width: none;
 }}
 .table-scroll:not(.wide-min) > table {{
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
+  min-width: 0; width: 100%; max-width: 100%;
 }}
+.col-m-hide {{ display: none !important; }}
 .opp-signal-grid {{
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}}
-@media (max-width: 768px) {{
-  body {{
-    padding: 0.85rem 0.65rem;
-    padding-left: max(0.65rem, env(safe-area-inset-left, 0px));
-    padding-right: max(0.65rem, env(safe-area-inset-right, 0px));
-    padding-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
-  }}
-  .mobile-rotate-hint {{
-    display: block;
-    font-size: 0.78rem;
-    color: var(--text-dim);
-    line-height: 1.45;
-    padding: 0.35rem 0;
-    border-left: 3px solid var(--cyan);
-    padding-left: 0.6rem;
-    margin-top: 0.25rem;
-  }}
-  h1 {{ font-size: 1.2rem; }}
-  h2 {{ font-size: 1rem; margin: 1.5rem 0 0.75rem; }}
-  .risk-banner {{
-    padding: 1rem;
-    padding-left: max(1rem, env(safe-area-inset-left, 0px));
-    padding-right: max(1rem, env(safe-area-inset-right, 0px));
-    gap: 1rem;
-    flex-direction: column;
-    align-items: flex-start;
-  }}
-  .risk-banner .level {{ font-size: 1.45rem; }}
-  .risk-banner .meta span {{
-    display: inline-block;
-    margin-right: 0.75rem;
-    margin-bottom: 0.25rem;
-  }}
-  .card {{ padding: 1rem; }}
-  .section-body {{ padding: 0 0.65rem 0.85rem; }}
-  .section-header {{
-    min-height: max(2.75rem, 44px);
-    padding: 0.85rem 0.75rem;
-    font-size: 0.95rem;
-    line-height: 1.35;
-  }}
-  table {{ font-size: 0.8rem; }}
-  th, td {{ padding: 0.45rem 0.5rem; word-break: break-word; }}
-  .table-scroll.wide-min > table {{ min-width: 30rem; font-size: 0.78rem; }}
-  .table-scroll:not(.wide-min) > table {{ font-size: 0.85rem; }}
-  .opp-signal-grid {{ grid-template-columns: 1fr; }}
-  .footer {{ font-size: 0.72rem; line-height: 1.65; }}
-  .bond-bank-summary {{
-    min-height: max(2.65rem, 44px);
-    align-items: center;
-  }}
-}}
-/* Hide non-essential columns on phones — less horizontal travel (BL-17) */
-@media (max-width: 640px) {{
-  .col-m-hide {{
-    display: none !important;
-  }}
-  .table-scroll.wide-min > table {{ min-width: 22rem; font-size: 0.8rem; }}
-}}
-@media (max-width: 420px) {{
-  body {{
-    padding: 0.65rem 0.5rem;
-    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
-    padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
-  }}
-  .table-scroll.wide-min > table {{ min-width: 20rem; }}
+  display: grid; grid-template-columns: 1fr;
+  gap: 1rem; margin-bottom: 0.75rem;
 }}
 .nav-bar {{
   position: sticky; top: 0; z-index: 100;
   background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
-  padding: 0.5rem 0; margin: 0 -2rem 1rem -2rem;
-  display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem;
+  padding: 0.4rem 0.5rem;
+  margin: 0 calc(var(--pad-inline) * -1) 0.75rem calc(var(--pad-inline) * -1);
+  display: flex; flex-wrap: wrap; gap: 0.15rem 0.3rem;
   justify-content: center;
-  padding-left: max(1rem, env(safe-area-inset-left, 0px));
-  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
 }}
 .nav-bar a {{
-  color: var(--cyan); text-decoration: none; font-size: 0.75rem;
-  font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 0.35rem;
+  color: var(--cyan); text-decoration: none; font-size: 0.65rem;
+  font-weight: 600; padding: 0.25rem 0.4rem; border-radius: 0.35rem;
   text-transform: uppercase; letter-spacing: 0.04em;
   white-space: nowrap; transition: background 0.15s;
+  min-height: 44px; display: inline-flex; align-items: center;
 }}
 .nav-bar a:hover {{ background: var(--surface); }}
-@media (max-width: 768px) {{
-  .nav-bar {{
-    margin: 0 -0.65rem 0.75rem -0.65rem;
-    padding: 0.4rem 0.5rem;
-    gap: 0.15rem 0.3rem;
+
+/* \u2500\u2500 Foldable / mini-tablet (\u2265 600px) \u2500\u2500 */
+@media (min-width: 600px) {{
+  .table-scroll.wide-min > table {{ min-width: 22rem; font-size: 0.8rem; }}
+}}
+
+/* \u2500\u2500 Tablet (\u2265 768px) \u2500\u2500 */
+@media (min-width: 768px) {{
+  .section-anchor {{ scroll-margin-top: 4.5rem; }}
+  h2 {{ margin: 2rem 0 1rem; }}
+  .card {{ padding: 1.25rem; }}
+  .risk-banner {{
+    flex-direction: row; align-items: center; gap: 2rem;
+    padding: 1.5rem;
   }}
-  .nav-bar a {{ font-size: 0.65rem; padding: 0.25rem 0.4rem; }}
+  .risk-banner .meta span {{ margin-right: 1.5rem; margin-bottom: 0; }}
+  table {{ font-size: 0.85rem; }}
+  th {{ padding: 0.6rem 0.75rem; }}
+  td {{ padding: 0.5rem 0.75rem; word-break: normal; }}
+  .footer {{ font-size: 0.75rem; line-height: 1.8; }}
+  .two-col {{ grid-template-columns: 1fr 1fr; }}
+  .section-header {{ padding: 0.75rem 1rem; min-height: auto; }}
+  .section-body {{ padding: 0 1rem 1rem; }}
+  .mobile-rotate-hint {{ display: none; }}
+  .col-m-hide {{ display: table-cell !important; }}
+  .table-scroll.wide-min > table {{ min-width: 30rem; }}
+  .opp-signal-grid {{ grid-template-columns: 1fr 1fr; }}
+  .nav-bar {{
+    padding: 0.5rem 0; gap: 0.25rem 0.5rem;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }}
+  .nav-bar a {{ font-size: 0.75rem; padding: 0.3rem 0.6rem; min-height: auto; }}
+  .bond-bank-summary {{ min-height: auto; align-items: baseline; }}
+}}
+
+/* \u2500\u2500 Desktop (\u2265 1024px) \u2500\u2500 */
+@media (min-width: 1024px) {{
+  .table-scroll.wide-min > table {{ min-width: 36rem; }}
+  .table-scroll.table-edge-hint {{ box-shadow: none; }}
 }}
 </style>
 </head>
@@ -678,6 +620,41 @@ Generated by Financial Agent v0.2
     "You opened this page: " +
     d.toLocaleString(undefined, {{ dateStyle: "long", timeStyle: "short" }}) +
     " (your device clock — not a market quote time).";
+}})();
+(function () {{
+  function openAndScroll(id) {{
+    var target = document.getElementById(id);
+    if (!target) return;
+    var allSections = document.querySelectorAll("details.section-collapse");
+    for (var i = 0; i < allSections.length; i++) {{
+      allSections[i].open = false;
+    }}
+    if (target.tagName === "DETAILS") {{
+      target.open = true;
+    }}
+    requestAnimationFrame(function () {{
+      requestAnimationFrame(function () {{
+        target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+      }});
+    }});
+  }}
+  var links = document.querySelectorAll(".nav-bar a[href^='#']");
+  for (var i = 0; i < links.length; i++) {{
+    links[i].addEventListener("click", function (e) {{
+      e.preventDefault();
+      var id = this.getAttribute("href").slice(1);
+      history.pushState(null, "", "#" + id);
+      openAndScroll(id);
+    }});
+  }}
+  window.addEventListener("popstate", function () {{
+    var hash = window.location.hash;
+    if (hash && hash.length > 1) openAndScroll(decodeURIComponent(hash.slice(1)));
+  }});
+  var initHash = window.location.hash;
+  if (initHash && initHash.length > 1) {{
+    openAndScroll(decodeURIComponent(initHash.slice(1)));
+  }}
 }})();
 </script>
 </body>
@@ -889,7 +866,7 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     score_label = f"Score (uncapped)" if uncapped > 100 else "Score / 100"
     gauge = _risk_gauge_html(uncapped)
     return f"""
-<div class="risk-banner">
+<div class="risk-banner section-anchor" id="risk">
   <div>
     <div class="level" style="color: {risk_color}">{health.overall_risk.upper()}</div>
     <div style="color: var(--text-dim); font-size: 0.8rem;">Risk Level</div>
@@ -956,7 +933,7 @@ def _section_risk_legend(health: MarketHealthReport) -> str:
     active_level = health.overall_risk
 
     levels = [
-        ("CATASTROPHIC", "raw sum 200+",
+        ("CATASTROPHIC", "raw sum 200+", "#450a0a",
          "The <strong>uncapped</strong> point total reached 200 or more — many rule-based signals fired together "
          "(technical + macro + fundamentals). This label measures <strong>stacked stress in this model</strong>; "
          "it is <strong>not</strong> a prediction of collapse and <strong>not</strong> financial advice."),
@@ -1152,9 +1129,7 @@ def _section_market_table(market_data: dict) -> str:
     n_cats = sum(1 for v in counts.values() if v)
     breakdown = ", ".join(f"{counts[k]} {k}" for k in counts if counts[k])
 
-    header = f"""
-<h2>Market Overview</h2>
-<div class="subtitle" style="margin-bottom:1rem;">{total} assets in {n_cats} categories ({breakdown}). Expand each section below.</div>
+    header = f"""<div class="subtitle" style="margin-bottom:1rem;">{total} assets in {n_cats} categories ({breakdown}). Expand each section below.</div>
 """
 
     table_head = """<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
@@ -1195,7 +1170,13 @@ def _section_market_table(market_data: dict) -> str:
             rows_html = "".join(_market_category_table_rows(items))
             parts.append(_collapsible(f"{label} ({len(items)})", table_head + rows_html + table_tail))
 
-    return "\n".join(parts) + _glossary()
+    inner = "\n".join(parts) + _glossary()
+    return _collapsible(
+        f"Market Overview — {total} assets in {n_cats} categories",
+        inner,
+        open_default=False,
+        section_id="markets",
+    )
 
 
 def _glossary() -> str:
@@ -1314,6 +1295,7 @@ def _section_bond_bank_plain_english(macro_data: MacroSnapshot | None) -> str:
         "Banking & bonds — plain English",
         f'<div class="card">{inner}</div>',
         open_default=False,
+        section_id="bonds-banks",
     )
 
 
@@ -1432,7 +1414,8 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
-{alerts}"""
+{alerts}""",
+        section_id="macro",
     )
 
 
@@ -1480,7 +1463,8 @@ def _section_fundamentals(fundamentals: dict[str, StockFundamentals], name_looku
 <th class="col-m-hide" style="text-align:right">ROE</th><th class="col-m-hide" style="text-align:right">Data</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
-</div>"""
+</div>""",
+        section_id="fundamentals",
     )
 
 
@@ -1585,7 +1569,12 @@ losses are theoretically uncapped. Max position: 1% of portfolio with a defined 
 </div>
 {short_cards}"""
 
-    return _collapsible(f"Opportunities ({len(opportunities)} found){summary}", content, open_default=True)
+    return _collapsible(
+        f"Opportunities ({len(opportunities)} found){summary}",
+        content,
+        open_default=False,
+        section_id="opportunities",
+    )
 
 
 def _section_signals(health: MarketHealthReport) -> str:
@@ -1621,7 +1610,8 @@ def _section_signals(health: MarketHealthReport) -> str:
 <thead><tr><th>Severity</th><th class="col-m-hide">Type</th><th class="col-m-hide">Category</th><th>Signal</th><th>Detail</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
-</div>"""
+</div>""",
+        section_id="signals",
     )
 
 
@@ -1679,6 +1669,7 @@ The only crash where early withdrawal would have been correct was 1929 — under
 that cannot recur in the modern financial system. Average oil-shock recovery: {comparison.get("avg_oil_crash_recovery_months", 0):.0f} months.
 </div>
 </div>""",
+        section_id="historical",
     )
 
 
@@ -1725,6 +1716,7 @@ The current situation is broader — it affects energy, semiconductors, food, an
 Historical parallel suggests a longer recovery timeline than a pure oil shock.
 </div>
 </div>""",
+        section_id="supply-chain",
     )
 
 
@@ -1788,8 +1780,9 @@ def _collapsible(
 ) -> str:
     open_attr = " open" if open_default else ""
     id_attr = f' id="{escape(section_id)}"' if section_id else ""
+    anchor_cls = " section-anchor" if section_id else ""
     return f"""
-<details class="section-collapse"{open_attr}{id_attr}>
+<details class="section-collapse{anchor_cls}"{open_attr}{id_attr}>
 <summary class="section-header">{title}</summary>
 <div class="section-body">
 {content}
