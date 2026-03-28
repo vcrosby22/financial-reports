@@ -268,8 +268,14 @@ def _build_html(
 
     sections = []
     sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi))
-    sections.append(_section_risk_summary(health, risk_color, conf_color, guidance))
-    sections.append(_section_risk_score_reader_context(health))
+    risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance)
+    risk_inner += _section_risk_score_reader_context(health)
+    sections.append(_collapsible(
+        f'Risk Overview — <span style="color:{risk_color}">{health.overall_risk.upper()}</span> (Score: {_health_uncapped_score(health)})',
+        risk_inner,
+        open_default=False,
+        section_id="risk",
+    ))
     sections.append(_section_score_attribution(health))
     sections.append(_section_risk_legend(health))
     sections.append(_section_market_table(market_data))
@@ -397,7 +403,7 @@ tr:hover {{ background: var(--surface2); }}
 .neutral {{ color: var(--text-dim); }}
 .tag {{
   display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.25rem;
-  font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+  font-size: 0.7rem; font-weight: 600; text-transform: uppercase; white-space: nowrap;
 }}
 .tag-critical {{ background: #dc2626; color: #ffffff; border: 1px solid #f87171; box-shadow: 0 0 0 1px rgba(220,38,38,0.35); }}
 .tag-warning {{ background: #d97706; color: #fffbeb; border: 1px solid #fbbf24; }}
@@ -744,7 +750,7 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
             f"<td style=\"text-align:right;{pts_style}\">{c.points}</td>"
             f"<td>{escape(c.name)}</td>"
             f"<td>{ticker_display}</td>"
-            f"<td>{escape(c.category)}</td>"
+            f"<td class='col-m-hide'>{escape(c.category)}</td>"
             f"<td>{_severity_tag_html(c.severity)}</td>"
             f"<td class='col-m-hide'>{_attribution_lead_lag_span(c.signal_type)}</td>"
             "</tr>"
@@ -770,7 +776,7 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
 <div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="width:100%;font-size:0.8rem;">
 <thead><tr>
-<th style="text-align:right;padding-right:0.5rem;">Points</th><th>Signal</th><th>Ticker</th><th>Cat</th><th>Sev</th><th class='col-m-hide'>Lead/Lag</th>
+<th style="text-align:right;padding-right:0.5rem;">Points</th><th>Signal</th><th>Ticker</th><th class="col-m-hide">Cat</th><th>Sev</th><th class='col-m-hide'>Lead/Lag</th>
 </tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
@@ -801,7 +807,7 @@ def _section_kpi_cards(
             f'padding:0.75rem 1rem;border-left:4px solid {color};">'
             f'<div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;'
             f'letter-spacing:0.05em;margin-bottom:0.3rem;">{label}</div>'
-            f'<div style="font-size:1.8rem;font-weight:700;color:{color};line-height:1.1;">{value}</div>'
+            f'<div style="font-size:clamp(1rem, 4vw, 1.8rem);font-weight:700;color:{color};line-height:1.1;overflow-wrap:break-word;">{value}</div>'
             f'{"<div style=\"font-size:0.8rem;color:var(--text-dim);margin-top:0.2rem;\">" + sub + "</div>" if sub else ""}'
             f'</div>'
         )
@@ -879,7 +885,7 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     score_label = f"Score (uncapped)" if uncapped > 100 else "Score / 100"
     gauge = _risk_gauge_html(uncapped)
     return f"""
-<div class="risk-banner section-anchor" id="risk">
+<div class="risk-banner">
   <div>
     <div class="level" style="color: {risk_color}">{health.overall_risk.upper()}</div>
     <div style="color: var(--text-dim); font-size: 0.8rem;">Risk Level</div>
