@@ -281,7 +281,6 @@ def _build_html(
     sections.append(_section_market_table(market_data))
     if macro_data and macro_data.indicators:
         sections.append(_section_macro(macro_data))
-    sections.append(_section_authoritative_sources())
     if fundamentals:
         name_lookup = {item["ticker"]: item.get("name", item["ticker"])
                        for cat in market_data.values() if isinstance(cat, list)
@@ -297,6 +296,7 @@ def _build_html(
     sections.append(_section_supply_chain())
     if trend_context:
         sections.append(_section_trend_context(trend_context))
+    sections.append(_section_authoritative_sources())
 
     body = "\n".join(sections)
 
