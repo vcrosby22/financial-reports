@@ -253,7 +253,7 @@ def _build_html(
     risk_color = {
         "low": "#22c55e", "moderate": "#eab308", "elevated": "#f97316",
         "high": "#ef4444", "critical": "#dc2626",
-        "severe": "#991b1b", "extreme": "#7f1d1d", "catastrophic": "#450a0a",
+        "severe": "#991b1b", "extreme": "#7f1d1d", "catastrophic": "#b91c1c",
     }.get(health.overall_risk, "#6b7280")
 
     conf_color = {"high": "#22c55e", "medium": "#eab308", "low": "#ef4444"}.get(health.confidence, "#6b7280")
@@ -838,7 +838,7 @@ def _risk_gauge_html(uncapped: int) -> str:
     if display_max > 150:
         segments.append((50 / display_max * 100, "#7f1d1d", "EXTREME"))
     if display_max > 200:
-        segments.append((100 / display_max * 100, "#450a0a", "CATAST"))
+        segments.append((100 / display_max * 100, "#b91c1c", "CATAST"))
 
     gradient_parts = []
     pos = 0
@@ -933,7 +933,7 @@ def _section_risk_legend(health: MarketHealthReport) -> str:
     active_level = health.overall_risk
 
     levels = [
-        ("CATASTROPHIC", "raw sum 200+", "#450a0a",
+        ("CATASTROPHIC", "raw sum 200+", "#b91c1c",
          "The <strong>uncapped</strong> point total reached 200 or more — many rule-based signals fired together "
          "(technical + macro + fundamentals). This label measures <strong>stacked stress in this model</strong>; "
          "it is <strong>not</strong> a prediction of collapse and <strong>not</strong> financial advice."),
