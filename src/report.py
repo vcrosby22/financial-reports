@@ -776,7 +776,7 @@ def _section_score_attribution(health: MarketHealthReport) -> str:
 <div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="width:100%;font-size:0.8rem;">
 <thead><tr>
-<th style="text-align:right;padding-right:0.5rem;">Points</th><th>Signal</th><th>Ticker</th><th class="col-m-hide">Cat</th><th>Sev</th><th class='col-m-hide'>Lead/Lag</th>
+<th style="text-align:right;padding-right:0.5rem;width:3.5rem;">Pts</th><th>Signal</th><th style="width:4rem;">Ticker</th><th class="col-m-hide">Cat</th><th style="width:4.5rem;">Sev</th><th class='col-m-hide'>Lead/Lag</th>
 </tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
