@@ -227,13 +227,26 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         console.print(f"[dim]Supply chain log: {sc_log}[/dim]")
 
     console.print("  Computing forward projection...")
-    from .analysis.projection import RiskProjection, compute_projection
+    from .analysis.projection import BottomEstimate, RiskProjection, compute_bottom_estimate, compute_projection
     active_cascade_count = len([s for s in cascade_stages if s.status == "active"])
     projection = compute_projection(risk_trend, macro_data, active_cascade_count)
     console.print(f"  Projection: {projection.label} (confidence {projection.confidence:.0%})")
 
+    console.print("  Computing bottom estimate...")
+    sp500_idx = next((i for i in market_data.get("indices", []) if i.get("ticker") == "^GSPC"), None)
+    sp500_for_estimate = sp500_idx["price"] if sp500_idx and sp500_idx.get("price") else None
+    from .personal.historical import find_similar_crashes as _find_similar, get_all_crashes as _get_all
+    _all = _get_all(sp500_for_estimate, macro_data, active_cascade_count)
+    _current_ev = next((c for c in _all if c.name.startswith("2026")), None)
+    _current_factors = _current_ev.crisis_factors if _current_ev else set()
+    _current_decline = _current_ev.decline_pct if _current_ev else -7.5
+    _similar = _find_similar(_current_decline, sp500_price=sp500_for_estimate, macro=macro_data, cascade_active_count=active_cascade_count)
+    bottom_estimate = compute_bottom_estimate(sp500_for_estimate, _similar, _current_factors)
+    if bottom_estimate:
+        console.print(f"  Bottom estimate: optimistic {bottom_estimate.optimistic_decline:.1f}%, base {bottom_estimate.base_decline:.1f}%, pessimistic {bottom_estimate.pessimistic_decline:.1f}%")
+
     console.print("  Building HTML...")
-    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend, cascade_stages, projection)
+    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend, cascade_stages, projection, bottom_estimate)
 
     if output_path:
         filepath = Path(output_path)
@@ -268,6 +281,7 @@ def _build_html(
     risk_trend: RiskTrend | None = None,
     cascade_stages: list | None = None,
     projection: object | None = None,
+    bottom_estimate: object | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -319,6 +333,11 @@ def _build_html(
         open_default=False,
         section_id="risk",
     ))
+    sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
+    sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
+    cascade_active = sum(1 for s in (cascade_stages or []) if getattr(s, 'status', '') == "active")
+    sections.append(_section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate))
+    sections.append(_section_supply_chain(cascade_stages))
     sections.append(_section_score_attribution(health))
     sections.append(_section_risk_legend(health))
     sections.append(_section_market_table(market_data))
@@ -333,11 +352,6 @@ def _build_html(
         sections.append(_section_opportunities(opportunities, health))
     sections.append(_section_signals(health))
     sections.append(_section_bond_bank_plain_english(macro_data))
-    sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
-    sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
-    cascade_active = sum(1 for s in (cascade_stages or []) if getattr(s, 'status', '') == "active")
-    sections.append(_section_historical_parallels(sp500_price, macro_data, cascade_active))
-    sections.append(_section_supply_chain(cascade_stages))
     if trend_context:
         sections.append(_section_trend_context(trend_context))
     sections.append(_section_authoritative_sources())
@@ -1785,6 +1799,7 @@ def _section_historical_parallels(
     sp500_price: float | None,
     macro_data: object | None = None,
     cascade_active_count: int = 0,
+    bottom_estimate: object | None = None,
 ) -> str:
     """Public-safe section comparing current situation to historical crashes."""
     peak = 6900
@@ -1856,10 +1871,46 @@ def _section_historical_parallels(
 <div style="display:flex;flex-direction:column;gap:0.4rem;">{"".join(dna_rows)}</div>
 </div>"""
 
+    bottom_html = ""
+    if bottom_estimate and hasattr(bottom_estimate, 'base_decline'):
+        be = bottom_estimate
+        bar_width = 90
+        curr_pos = min(abs(be.current_decline_pct) / bar_width * 100, 100)
+        opt_pos = min(abs(be.optimistic_decline) / bar_width * 100, 100)
+        base_pos = min(abs(be.base_decline) / bar_width * 100, 100)
+        pess_pos = min(abs(be.pessimistic_decline) / bar_width * 100, 100)
+        analogs_text = ", ".join(be.analogs_used[:3]) if be.analogs_used else "insufficient data"
+        bottom_html = f"""<div style="margin-bottom:1.25rem;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:0.6rem;">
+<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:0.5rem;">2026 Bottom Estimate <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400;">(analog-weighted from factor overlap)</span></div>
+<div style="position:relative;height:48px;background:linear-gradient(to right,rgba(234,179,8,0.15),rgba(239,68,68,0.15),rgba(220,38,38,0.2));border-radius:0.5rem;margin:0.5rem 0;">
+  <div style="position:absolute;left:{curr_pos:.1f}%;top:0;bottom:0;width:2px;background:var(--cyan);z-index:3;" title="Current: {be.current_decline_pct:.1f}%"></div>
+  <div style="position:absolute;left:{curr_pos:.1f}%;top:-2px;font-size:0.65rem;color:var(--cyan);font-weight:700;transform:translateX(-50%);">Now</div>
+  <div style="position:absolute;left:{opt_pos:.1f}%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:var(--green);border-radius:50%;z-index:2;" title="Optimistic: {be.optimistic_decline:.1f}%"></div>
+  <div style="position:absolute;left:{base_pos:.1f}%;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;background:var(--yellow);border-radius:50%;border:2px solid var(--bg);z-index:2;" title="Base: {be.base_decline:.1f}%"></div>
+  <div style="position:absolute;left:{pess_pos:.1f}%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:var(--red);border-radius:50%;z-index:2;" title="Pessimistic: {be.pessimistic_decline:.1f}%"></div>
+  <div style="position:absolute;left:{opt_pos:.1f}%;top:50%;width:{pess_pos - opt_pos:.1f}%;height:4px;background:rgba(255,255,255,0.15);transform:translateY(-50%);z-index:1;border-radius:2px;"></div>
+</div>
+<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;font-size:0.78rem;margin-top:0.35rem;">
+  <div><span style="color:var(--green);font-weight:600;">Optimistic:</span> <span style="color:var(--text-dim);">{be.optimistic_decline:.1f}% (S&amp;P ~{be.optimistic_level:,.0f})</span></div>
+  <div><span style="color:var(--yellow);font-weight:600;">Base case:</span> <span style="color:var(--text);">{be.base_decline:.1f}% (S&amp;P ~{be.base_level:,.0f})</span></div>
+  <div><span style="color:var(--red);font-weight:600;">Pessimistic:</span> <span style="color:var(--text-dim);">{be.pessimistic_decline:.1f}% (S&amp;P ~{be.pessimistic_level:,.0f})</span></div>
+</div>
+<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;font-size:0.75rem;color:var(--text-dim);margin-top:0.25rem;">
+  <div>~{be.optimistic_days} days</div>
+  <div>~{be.base_days} days</div>
+  <div>~{be.pessimistic_days} days</div>
+</div>
+<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.5rem;line-height:1.4;">
+Based on: {escape(analogs_text)}. Each analog weighted by crisis factor overlap (confidence: {be.confidence:.0%}).
+This is not a prediction — it shows where similar historical crises ended.
+</div>
+</div>"""
+
     return _collapsible(
         f"Crisis Context: Historical Parallels — {decline_pct:+.1f}%, strongest overlap: {match_name} ({best_overlap}/{total_f} factors)",
         f"""<div class="card">
 {crisis_dna_html}
+{bottom_html}
 <div style="margin-bottom:1rem;">
   <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.3rem;">Current S&amp;P 500 decline from Jan 2026 peak (~6,900)</div>
   <div style="display:flex;align-items:center;gap:0.75rem;">

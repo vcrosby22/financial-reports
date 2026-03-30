@@ -1,7 +1,11 @@
-"""Forward-looking risk projection.
+"""Forward-looking risk projection and bottom-estimate model.
 
 Combines risk score trajectory, leading macro indicators, and supply chain
 momentum into a directional forecast: WORSENING / STABLE / IMPROVING.
+
+Also provides a bottom-estimate model that uses historical analog crashes
+(weighted by crisis factor overlap) to project where the current decline
+might end: optimistic, base, and pessimistic scenarios.
 
 This module is designed to become more valuable as historical data
 (risk_score_history.jsonl, supply_chain_history.jsonl) accumulates.
@@ -152,3 +156,89 @@ def compute_projection(
         factors.append("Insufficient signals for directional call — monitoring")
 
     return RiskProjection(direction=direction, confidence=confidence, factors=factors)
+
+
+@dataclass
+class BottomEstimate:
+    """Projected bottom range based on historical analog crashes."""
+    peak_level: float
+    current_level: float
+    current_decline_pct: float
+    optimistic_decline: float   # shallowest analog decline (%)
+    base_decline: float         # factor-weighted average decline (%)
+    pessimistic_decline: float  # deepest analog decline (%)
+    optimistic_level: float     # S&P 500 level at optimistic bottom
+    base_level: float
+    pessimistic_level: float
+    optimistic_days: int        # estimated days to bottom
+    base_days: int
+    pessimistic_days: int
+    analogs_used: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+
+
+def compute_bottom_estimate(
+    sp500_price: float | None,
+    similar_crashes: list,
+    current_factors: set[str],
+    peak: float = 6900.0,
+) -> BottomEstimate | None:
+    """Project where the bottom might be using factor-weighted historical analogs.
+
+    Uses the top historical matches (by factor overlap) to produce three
+    scenarios. Each analog's decline is weighted by its factor overlap count
+    with the current crisis.
+    """
+    if not similar_crashes or not current_factors:
+        return None
+
+    price = sp500_price if sp500_price else peak
+    current_decline = ((price - peak) / peak) * 100
+
+    analogs = similar_crashes[:5]
+
+    weighted_decline = 0.0
+    weighted_days = 0.0
+    total_weight = 0.0
+    declines = []
+    days_list = []
+    names = []
+
+    for crash in analogs:
+        overlap = len(crash.crisis_factors & current_factors)
+        if overlap == 0:
+            continue
+        weight = overlap ** 2
+        weighted_decline += crash.decline_pct * weight
+        weighted_days += crash.days_to_bottom * weight
+        total_weight += weight
+        declines.append(crash.decline_pct)
+        days_list.append(crash.days_to_bottom)
+        names.append(crash.name)
+
+    if total_weight == 0 or not declines:
+        return None
+
+    base_decline = weighted_decline / total_weight
+    base_days = int(weighted_days / total_weight)
+    optimistic_decline = max(declines)  # least negative = shallowest
+    pessimistic_decline = min(declines)  # most negative = deepest
+    optimistic_days = min(days_list)
+    pessimistic_days = max(days_list)
+
+    return BottomEstimate(
+        peak_level=peak,
+        current_level=price,
+        current_decline_pct=round(current_decline, 1),
+        optimistic_decline=round(optimistic_decline, 1),
+        base_decline=round(base_decline, 1),
+        pessimistic_decline=round(pessimistic_decline, 1),
+        optimistic_level=round(peak * (1 + optimistic_decline / 100)),
+        base_level=round(peak * (1 + base_decline / 100)),
+        pessimistic_level=round(peak * (1 + pessimistic_decline / 100)),
+        optimistic_days=optimistic_days,
+        base_days=base_days,
+        pessimistic_days=pessimistic_days,
+        analogs_used=names,
+        confidence=min(0.2 * len(names), 0.8),
+    )
