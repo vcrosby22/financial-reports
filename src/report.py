@@ -1874,33 +1874,39 @@ def _section_historical_parallels(
     bottom_html = ""
     if bottom_estimate and hasattr(bottom_estimate, 'base_decline'):
         be = bottom_estimate
-        bar_width = 90
-        curr_pos = min(abs(be.current_decline_pct) / bar_width * 100, 100)
-        opt_pos = min(abs(be.optimistic_decline) / bar_width * 100, 100)
-        base_pos = min(abs(be.base_decline) / bar_width * 100, 100)
-        pess_pos = min(abs(be.pessimistic_decline) / bar_width * 100, 100)
         analogs_text = ", ".join(be.analogs_used[:3]) if be.analogs_used else "insufficient data"
+
+        def _zone(color: str, label: str, decline: float, level: float, days: int, is_now: bool = False) -> str:
+            border_top = f"border-top:3px solid {color};"
+            opacity = "opacity:0.85;" if not is_now and label != "Base Case" else ""
+            size = "font-size:1.3rem;" if label == "Base Case" else "font-size:1.1rem;"
+            days_label = "today" if is_now else f"~{days} days"
+            return (
+                f'<div style="flex:1;min-width:0;padding:0.6rem 0.5rem;background:var(--surface);'
+                f'{border_top}border-radius:0.4rem;text-align:center;{opacity}">'
+                f'<div style="font-size:0.7rem;font-weight:600;color:{color};text-transform:uppercase;'
+                f'letter-spacing:0.04em;margin-bottom:0.3rem;">{escape(label)}</div>'
+                f'<div style="{size}font-weight:700;color:{color};">{decline:.1f}%</div>'
+                f'<div style="font-size:0.82rem;color:var(--text);margin-top:0.15rem;">S&amp;P ~{level:,.0f}</div>'
+                f'<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.15rem;">{days_label}</div>'
+                f'</div>'
+            )
+
+        zones = [
+            _zone("var(--cyan)", "Now", be.current_decline_pct, be.current_level, 0, is_now=True),
+            _zone("var(--green)", "Optimistic", be.optimistic_decline, be.optimistic_level, be.optimistic_days),
+            _zone("#eab308", "Base Case", be.base_decline, be.base_level, be.base_days),
+            _zone("var(--red)", "Pessimistic", be.pessimistic_decline, be.pessimistic_level, be.pessimistic_days),
+        ]
+
+        arrow = '<div style="display:flex;align-items:center;color:var(--text-dim);font-size:0.7rem;padding:0 0.15rem;">&#9654;</div>'
+
         bottom_html = f"""<div style="margin-bottom:1.25rem;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:0.6rem;">
-<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:0.5rem;">2026 Bottom Estimate <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400;">(analog-weighted from factor overlap)</span></div>
-<div style="position:relative;height:48px;background:linear-gradient(to right,rgba(234,179,8,0.15),rgba(239,68,68,0.15),rgba(220,38,38,0.2));border-radius:0.5rem;margin:0.5rem 0;">
-  <div style="position:absolute;left:{curr_pos:.1f}%;top:0;bottom:0;width:2px;background:var(--cyan);z-index:3;" title="Current: {be.current_decline_pct:.1f}%"></div>
-  <div style="position:absolute;left:{curr_pos:.1f}%;top:-2px;font-size:0.65rem;color:var(--cyan);font-weight:700;transform:translateX(-50%);">Now</div>
-  <div style="position:absolute;left:{opt_pos:.1f}%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:var(--green);border-radius:50%;z-index:2;" title="Optimistic: {be.optimistic_decline:.1f}%"></div>
-  <div style="position:absolute;left:{base_pos:.1f}%;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;background:var(--yellow);border-radius:50%;border:2px solid var(--bg);z-index:2;" title="Base: {be.base_decline:.1f}%"></div>
-  <div style="position:absolute;left:{pess_pos:.1f}%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:var(--red);border-radius:50%;z-index:2;" title="Pessimistic: {be.pessimistic_decline:.1f}%"></div>
-  <div style="position:absolute;left:{opt_pos:.1f}%;top:50%;width:{pess_pos - opt_pos:.1f}%;height:4px;background:rgba(255,255,255,0.15);transform:translateY(-50%);z-index:1;border-radius:2px;"></div>
+<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:0.6rem;">2026 Bottom Estimate <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400;">(analog-weighted from factor overlap)</span></div>
+<div style="display:flex;gap:0.35rem;align-items:stretch;">
+{arrow.join(zones)}
 </div>
-<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;font-size:0.78rem;margin-top:0.35rem;">
-  <div><span style="color:var(--green);font-weight:600;">Optimistic:</span> <span style="color:var(--text-dim);">{be.optimistic_decline:.1f}% (S&amp;P ~{be.optimistic_level:,.0f})</span></div>
-  <div><span style="color:var(--yellow);font-weight:600;">Base case:</span> <span style="color:var(--text);">{be.base_decline:.1f}% (S&amp;P ~{be.base_level:,.0f})</span></div>
-  <div><span style="color:var(--red);font-weight:600;">Pessimistic:</span> <span style="color:var(--text-dim);">{be.pessimistic_decline:.1f}% (S&amp;P ~{be.pessimistic_level:,.0f})</span></div>
-</div>
-<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;font-size:0.75rem;color:var(--text-dim);margin-top:0.25rem;">
-  <div>~{be.optimistic_days} days</div>
-  <div>~{be.base_days} days</div>
-  <div>~{be.pessimistic_days} days</div>
-</div>
-<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.5rem;line-height:1.4;">
+<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.6rem;line-height:1.4;">
 Based on: {escape(analogs_text)}. Each analog weighted by crisis factor overlap (confidence: {be.confidence:.0%}).
 This is not a prediction — it shows where similar historical crises ended.
 </div>
