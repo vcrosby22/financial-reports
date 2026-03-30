@@ -1,0 +1,1 @@
+{"ts_utc": "2026-03-30T14:13:16.668457+00:00", "score": 100, "score_uncapped": 525, "overall_risk": "catastrophic", "critical_count": 9, "warning_count": 20, "leading_signal_count": 4, "source": "github_actions", "github_sha": "f2527f57dc1f2bfcf57aa7c8604bf5c426d66e3d", "github_run_id": "23749251906"}
