@@ -34,6 +34,20 @@ FRED_SERIES: list[tuple[str, str, str]] = [
     ("GASREGW", "US Regular Gasoline Price", "supply_chain"),
     ("DCOILBRENTEU", "Brent Crude Oil (FRED)", "supply_chain"),
     ("INDPRO", "Industrial Production Index", "supply_chain"),
+    # CPI component breakdown — where inflation is hitting hardest
+    ("CUSR0000SAF11", "CPI Food at Home", "inflation_components"),
+    ("CUSR0000SEFV", "CPI Food Away from Home", "inflation_components"),
+    ("CUSR0000SAH1", "CPI Shelter", "inflation_components"),
+    ("CUSR0000SEHA", "CPI Rent of Primary Residence", "inflation_components"),
+    ("CPIENGSL", "CPI Energy", "inflation_components"),
+    ("CUSR0000SAM", "CPI Medical Care", "inflation_components"),
+    ("CUSR0000SETA02", "CPI Used Cars and Trucks", "inflation_components"),
+    ("CPILFESL", "CPI Core (ex Food & Energy)", "inflation_components"),
+    # Inflation expectations and alternative measures
+    ("T10YIEM", "10Y Breakeven Inflation Rate", "inflation_expectations"),
+    ("MICH", "UMich Inflation Expectations (1yr)", "inflation_expectations"),
+    ("MEDCPIM158SFRBCLE", "Median CPI (Cleveland Fed)", "inflation_expectations"),
+    ("PCETRIM12M159SFRBDAL", "Trimmed Mean PCE (Dallas Fed)", "inflation_expectations"),
 ]
 
 
@@ -46,6 +60,7 @@ class MacroIndicator:
     observation_date: date | None = None  # last FRED observation date for this series
     previous_value: float | None = None
     change: float | None = None
+    yoy_change: float | None = None  # year-over-year % change (first vs last in 365-day window)
     signal: str = "neutral"  # bullish, bearish, neutral, warning, critical
     description: str = ""
 
@@ -67,6 +82,8 @@ class MacroSnapshot:
             line = f"[{ind.category}] {ind.name}: {ind.value:.2f}"
             if ind.change is not None:
                 line += f" (change: {ind.change:+.2f})"
+            if ind.yoy_change is not None:
+                line += f" (YoY: {ind.yoy_change:+.1f}%)"
             line += f" | Signal: {ind.signal.upper()}"
             if ind.description:
                 line += f" — {ind.description}"
@@ -128,6 +145,11 @@ def _fetch_single_series(fred, series_id: str, name: str, category: str = "core_
         previous = float(data.iloc[-2]) if len(data) > 1 else None
         change = current - previous if previous is not None else None
 
+        year_ago = float(data.iloc[0]) if len(data) > 2 else None
+        yoy_change: float | None = None
+        if year_ago and year_ago > 0:
+            yoy_change = ((current - year_ago) / year_ago) * 100
+
         last_idx = data.index[-1]
         if hasattr(last_idx, "date"):
             obs_date: date | None = last_idx.date()
@@ -144,6 +166,7 @@ def _fetch_single_series(fred, series_id: str, name: str, category: str = "core_
             observation_date=obs_date,
             previous_value=previous,
             change=change,
+            yoy_change=yoy_change,
         )
 
         _classify_signal(indicator)
@@ -322,20 +345,20 @@ def _classify_signal(indicator: MacroIndicator):
             indicator.description = "Labor market healthy"
 
     elif sid == "CPIAUCSL":
-        if indicator.previous_value and indicator.previous_value > 0:
-            yoy_approx = ((indicator.value - indicator.previous_value) / indicator.previous_value) * 100
-            if yoy_approx > 6:
+        yoy = indicator.yoy_change
+        if yoy is not None:
+            if yoy > 6:
                 indicator.signal = "critical"
-                indicator.description = f"CPI surging (~{yoy_approx:.1f}% implied change) — stagflation risk"
-            elif yoy_approx > 4:
+                indicator.description = f"CPI surging ({yoy:+.1f}% YoY) — stagflation risk"
+            elif yoy > 4:
                 indicator.signal = "warning"
-                indicator.description = f"CPI elevated (~{yoy_approx:.1f}% implied change) — inflation sticky"
-            elif yoy_approx > 3:
+                indicator.description = f"CPI elevated ({yoy:+.1f}% YoY) — inflation sticky"
+            elif yoy > 3:
                 indicator.signal = "bearish"
-                indicator.description = f"CPI above target (~{yoy_approx:.1f}% implied change)"
+                indicator.description = f"CPI above target ({yoy:+.1f}% YoY)"
             else:
                 indicator.signal = "neutral"
-                indicator.description = f"CPI near target (~{yoy_approx:.1f}% implied change)"
+                indicator.description = f"CPI near target ({yoy:+.1f}% YoY)"
         else:
             indicator.signal = "neutral"
             indicator.description = f"CPI level: {indicator.value:,.1f} (index)"
@@ -398,6 +421,76 @@ def _classify_signal(indicator: MacroIndicator):
         else:
             indicator.signal = "neutral"
             indicator.description = "Industrial production stable"
+
+    # --- CPI components (index values; signal based on YoY%) ---
+
+    elif sid in ("CUSR0000SAF11", "CUSR0000SEFV", "CUSR0000SAH1", "CUSR0000SEHA",
+                 "CPIENGSL", "CUSR0000SAM", "CUSR0000SETA02", "CPILFESL"):
+        yoy = indicator.yoy_change
+        if yoy is not None:
+            if yoy > 6:
+                indicator.signal = "critical"
+                indicator.description = f"YoY {yoy:+.1f}% — running far above headline CPI"
+            elif yoy > 4:
+                indicator.signal = "warning"
+                indicator.description = f"YoY {yoy:+.1f}% — outpacing headline inflation"
+            elif yoy > 3:
+                indicator.signal = "bearish"
+                indicator.description = f"YoY {yoy:+.1f}% — above Fed 2% target"
+            elif yoy < -1:
+                indicator.signal = "bearish"
+                indicator.description = f"YoY {yoy:+.1f}% — deflationary (demand weakness or correction)"
+            else:
+                indicator.signal = "neutral"
+                indicator.description = f"YoY {yoy:+.1f}% — within normal range"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Index level: {indicator.value:,.1f} (insufficient data for YoY)"
+
+    # --- Inflation expectations and alternative measures ---
+
+    elif sid == "T10YIEM":
+        if indicator.value > 3.5:
+            indicator.signal = "critical"
+            indicator.description = f"Breakeven at {indicator.value:.2f}% — market pricing persistent high inflation"
+        elif indicator.value > 3.0:
+            indicator.signal = "warning"
+            indicator.description = f"Breakeven at {indicator.value:.2f}% — elevated inflation expectations"
+        elif indicator.value < 1.5:
+            indicator.signal = "bearish"
+            indicator.description = f"Breakeven at {indicator.value:.2f}% — deflation/recession risk priced in"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Breakeven at {indicator.value:.2f}% — anchored near target"
+
+    elif sid == "MICH":
+        if indicator.value > 5.0:
+            indicator.signal = "critical"
+            indicator.description = f"Consumer expects {indicator.value:.1f}% inflation — expectations unanchored"
+        elif indicator.value > 4.0:
+            indicator.signal = "warning"
+            indicator.description = f"Consumer expects {indicator.value:.1f}% inflation — elevated, self-fulfilling risk"
+        elif indicator.value > 3.0:
+            indicator.signal = "bearish"
+            indicator.description = f"Consumer expects {indicator.value:.1f}% inflation — above Fed comfort zone"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Consumer expects {indicator.value:.1f}% inflation — well-anchored"
+
+    elif sid in ("MEDCPIM158SFRBCLE", "PCETRIM12M159SFRBDAL"):
+        label = "Median CPI" if sid == "MEDCPIM158SFRBCLE" else "Trimmed Mean PCE"
+        if indicator.value > 5.0:
+            indicator.signal = "critical"
+            indicator.description = f"{label} at {indicator.value:.1f}% — broad-based inflation entrenched"
+        elif indicator.value > 4.0:
+            indicator.signal = "warning"
+            indicator.description = f"{label} at {indicator.value:.1f}% — inflation widespread, not outlier-driven"
+        elif indicator.value > 3.0:
+            indicator.signal = "bearish"
+            indicator.description = f"{label} at {indicator.value:.1f}% — above target but narrowing"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"{label} at {indicator.value:.1f}% — near or below 2% target"
 
 
 def apply_derived_macro_flags(snapshot: MacroSnapshot) -> None:

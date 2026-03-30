@@ -343,6 +343,9 @@ def _build_html(
     sections.append(_section_market_table(market_data))
     if macro_data and macro_data.indicators:
         sections.append(_section_macro(macro_data))
+        inflation_html = _section_inflation(macro_data)
+        if inflation_html:
+            sections.append(inflation_html)
     if fundamentals:
         name_lookup = {item["ticker"]: item.get("name", item["ticker"])
                        for cat in market_data.values() if isinstance(cat, list)
@@ -553,7 +556,13 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   width: 100%; max-width: 100%; margin-bottom: 0.5rem;
 }}
 .table-scroll.table-edge-hint {{
+  position: relative;
   box-shadow: inset -12px 0 14px -12px rgba(0, 0, 0, 0.55);
+}}
+.table-scroll.table-edge-hint::after {{
+  content: ''; position: absolute; top: 0; right: 0; bottom: 0;
+  width: 2rem; pointer-events: none; z-index: 5;
+  background: linear-gradient(to right, transparent, var(--bg));
 }}
 .sticky-first-col table th:first-child,
 .sticky-first-col table td:first-child {{
@@ -581,6 +590,16 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   display: grid; grid-template-columns: 1fr;
   gap: 1rem; margin-bottom: 0.75rem;
 }}
+.estimate-row {{
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem;
+}}
+.estimate-zone {{
+  min-width: 0; padding: 0.6rem 0.5rem; border-radius: 0.4rem; text-align: center;
+}}
+.estimate-val {{ font-size: clamp(0.95rem, 0.9rem + 0.2vw, 1.1rem); }}
+.estimate-val-lg {{ font-size: clamp(1.05rem, 1rem + 0.25vw, 1.3rem); }}
+.estimate-arrow {{ display: none; }}
+.section-detail {{ display: none; }}
 .nav-bar {{
   position: sticky; top: 0; z-index: 100;
   background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(8px);
@@ -594,6 +613,11 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
 }}
 .nav-bar::-webkit-scrollbar {{ display: none; }}
+.nav-bar::after {{
+  content: ''; position: sticky; right: 0; flex-shrink: 0;
+  min-width: 1.5rem; min-height: 100%; pointer-events: none;
+  background: linear-gradient(to right, transparent, rgba(15, 23, 42, 0.92));
+}}
 .nav-bar a {{
   color: var(--cyan); text-decoration: none; font-size: 0.7rem;
   font-weight: 600; padding: 0.4rem 0.55rem; border-radius: 0.35rem;
@@ -608,6 +632,13 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .table-scroll.wide-min > table {{ min-width: 22rem; font-size: 0.8rem; }}
   .section-body {{ padding: 0 0.5rem 0.75rem; }}
   .section-body .table-scroll.card {{ padding: 0.75rem 0.5rem; }}
+  .estimate-row {{ display: flex; gap: 0.35rem; align-items: stretch; }}
+  .estimate-zone {{ flex: 1; }}
+  .estimate-arrow {{
+    display: flex; align-items: center; color: var(--text-dim);
+    font-size: 0.7rem; padding: 0 0.3rem;
+  }}
+  .section-detail {{ display: inline; }}
 }}
 
 /* \u2500\u2500 Tablet (\u2265 768px) \u2500\u2500 */
@@ -641,6 +672,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
     padding-right: max(1rem, env(safe-area-inset-right, 0px));
   }}
   .nav-bar a {{ font-size: 0.75rem; padding: 0.3rem 0.6rem; min-height: auto; }}
+  .nav-bar::after {{ display: none; }}
   .bond-bank-summary {{ min-height: auto; align-items: baseline; }}
 }}
 
@@ -648,6 +680,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 @media (min-width: 1024px) {{
   .table-scroll.wide-min > table {{ min-width: 36rem; }}
   .table-scroll.table-edge-hint {{ box-shadow: none; }}
+  .table-scroll.table-edge-hint::after {{ display: none; }}
 }}
 </style>
 </head>
@@ -1532,10 +1565,13 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
         )
         rows.extend(_macro_indicator_row(ind) for ind in inds)
 
+    inflation_cats = {"inflation_components", "inflation_expectations"}
     rows: list[str] = []
     for cat in category_order:
         _append_category_block(cat, by_cat.pop(cat, None) or [])
     for cat in sorted(by_cat.keys()):
+        if cat in inflation_cats:
+            continue
         _append_category_block(cat, by_cat[cat])
 
     alerts = ""
@@ -1576,6 +1612,128 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
 </div>
 {alerts}""",
         section_id="macro",
+    )
+
+
+def _section_inflation(macro_data: MacroSnapshot) -> str:
+    """Dedicated consumer inflation breakdown: CPI components + expectations."""
+    sig_cls = {"critical": "tag-critical", "warning": "tag-warning", "bearish": "tag-warning",
+               "bullish": "tag-strong", "neutral": "tag-info"}
+
+    component_ids = {
+        "CUSR0000SAF11", "CUSR0000SEFV", "CUSR0000SAH1", "CUSR0000SEHA",
+        "CPIENGSL", "CUSR0000SAM", "CUSR0000SETA02", "CPILFESL",
+    }
+    expectation_ids = {
+        "T10YIEM", "MICH", "MEDCPIM158SFRBCLE", "PCETRIM12M159SFRBDAL",
+    }
+
+    components = [ind for ind in macro_data.indicators if ind.series_id in component_ids]
+    expectations = [ind for ind in macro_data.indicators if ind.series_id in expectation_ids]
+    headline = next((ind for ind in macro_data.indicators if ind.series_id == "CPIAUCSL"), None)
+
+    if not components and not expectations:
+        return ""
+
+    # -- Headline vs Core gauge --
+    core = next((ind for ind in components if ind.series_id == "CPILFESL"), None)
+    gauge_html = ""
+    if headline and core and headline.yoy_change is not None and core.yoy_change is not None:
+        h_yoy = headline.yoy_change
+        c_yoy = core.yoy_change
+        h_color = "var(--red)" if h_yoy > 4 else "var(--yellow)" if h_yoy > 3 else "var(--green)"
+        c_color = "var(--red)" if c_yoy > 4 else "var(--yellow)" if c_yoy > 3 else "var(--green)"
+        gauge_html = (
+            '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+            f'<div class="card" style="flex:1;min-width:140px;text-align:center;">'
+            f'<div style="font-size:0.75rem;color:var(--text-dim);">Headline CPI (YoY)</div>'
+            f'<div style="font-size:1.6rem;font-weight:700;color:{h_color};">{h_yoy:+.1f}%</div></div>'
+            f'<div class="card" style="flex:1;min-width:140px;text-align:center;">'
+            f'<div style="font-size:0.75rem;color:var(--text-dim);">Core CPI (YoY)</div>'
+            f'<div style="font-size:1.6rem;font-weight:700;color:{c_color};">{c_yoy:+.1f}%</div></div>'
+            '</div>'
+        )
+
+    # -- Component table --
+    comp_rows: list[str] = []
+    for ind in components:
+        signal_class = sig_cls.get(ind.signal, "tag-info")
+        yoy_str = f"{ind.yoy_change:+.1f}%" if ind.yoy_change is not None else "—"
+        yoy_extra = ""
+        if ind.yoy_change is not None:
+            if ind.yoy_change > 4:
+                yoy_extra = "color:var(--red);font-weight:600;"
+            elif ind.yoy_change > 3:
+                yoy_extra = "color:var(--yellow);"
+        change_str = f"{ind.change:+,.2f}" if ind.change is not None else "—"
+        comp_rows.append(
+            f"<tr><td><strong>{escape(ind.name)}</strong></td>"
+            f"<td style='text-align:right;white-space:nowrap;'>{ind.value:,.2f}</td>"
+            f"<td style='text-align:right;white-space:nowrap;{yoy_extra}'>{yoy_str}</td>"
+            f"<td class='col-m-hide' style='text-align:right'>{change_str}</td>"
+            f"<td style='white-space:nowrap;'><span class='tag {signal_class}'>{ind.signal}</span></td>"
+            f"<td class='col-m-hide' style='color:var(--text-dim)'>{escape(ind.description)}</td></tr>"
+        )
+
+    comp_html = ""
+    if comp_rows:
+        comp_html = (
+            '<div class="card table-scroll wide-min sticky-first-col table-edge-hint">'
+            '<table><thead><tr>'
+            '<th>Component</th><th style="text-align:right;width:5.5rem;">Index</th>'
+            '<th style="text-align:right;width:5rem;">YoY%</th>'
+            '<th class="col-m-hide" style="text-align:right">MoM Chg</th>'
+            '<th style="width:4.5rem;">Signal</th><th class="col-m-hide">Assessment</th>'
+            f'</tr></thead><tbody>{"".join(comp_rows)}</tbody></table></div>'
+        )
+
+    # -- Expectations sub-table --
+    exp_rows: list[str] = []
+    for ind in expectations:
+        signal_class = sig_cls.get(ind.signal, "tag-info")
+        exp_rows.append(
+            f"<tr><td><strong>{escape(ind.name)}</strong></td>"
+            f"<td style='text-align:right;white-space:nowrap;'>{ind.value:.2f}%</td>"
+            f"<td style='white-space:nowrap;'><span class='tag {signal_class}'>{ind.signal}</span></td>"
+            f"<td class='col-m-hide' style='color:var(--text-dim)'>{escape(ind.description)}</td></tr>"
+        )
+
+    exp_html = ""
+    if exp_rows:
+        exp_html = (
+            '<div style="margin-top:0.75rem;">'
+            '<div style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:0.35rem;">'
+            'Inflation Expectations &amp; Alternative Measures</div>'
+            '<div class="card table-scroll wide-min sticky-first-col table-edge-hint">'
+            '<table><thead><tr>'
+            '<th>Measure</th><th style="text-align:right;width:5rem;">Value</th>'
+            '<th style="width:4.5rem;">Signal</th><th class="col-m-hide">Assessment</th>'
+            f'</tr></thead><tbody>{"".join(exp_rows)}</tbody></table></div></div>'
+        )
+
+    # -- Summary tag --
+    all_inds = components + expectations
+    hot_count = sum(1 for ind in all_inds if ind.signal in ("critical", "warning"))
+    if hot_count:
+        summary = f' — <span style="color:var(--yellow);">{hot_count} elevated</span>'
+    else:
+        summary = ' — <span style="color:var(--green);">contained</span>'
+
+    methodology = (
+        '<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.45;margin-bottom:0.75rem;'
+        'padding:0.55rem 0.65rem;background:var(--surface2);border-radius:0.5rem;border:1px solid var(--border);">'
+        '<strong style="color:var(--text);">Where inflation hits hardest.</strong> '
+        'CPI components reveal which categories are driving headline inflation. '
+        'Shelter (~36% of CPI) is the stickiest; food and energy are the most volatile. '
+        'Expectations measures show whether inflation is becoming self-reinforcing. '
+        'YoY% is computed from the 12-month FRED data window. All data from official BLS/Fed sources.'
+        '</div>'
+    )
+
+    return _collapsible(
+        f"Consumer Inflation Breakdown{summary}",
+        methodology + gauge_html + comp_html + exp_html,
+        section_id="inflation",
     )
 
 
@@ -1879,14 +2037,14 @@ def _section_historical_parallels(
         def _zone(color: str, label: str, decline: float, level: float, days: int, is_now: bool = False) -> str:
             border_top = f"border-top:3px solid {color};"
             opacity = "opacity:0.85;" if not is_now and label != "Base Case" else ""
-            size = "font-size:1.3rem;" if label == "Base Case" else "font-size:1.1rem;"
+            size_cls = "estimate-val-lg" if label == "Base Case" else "estimate-val"
             days_label = "today" if is_now else f"~{days} days"
             return (
-                f'<div style="flex:1;min-width:0;padding:0.6rem 0.5rem;background:var(--surface);'
-                f'{border_top}border-radius:0.4rem;text-align:center;{opacity}">'
+                f'<div class="estimate-zone" style="background:var(--surface);'
+                f'{border_top}{opacity}">'
                 f'<div style="font-size:0.7rem;font-weight:600;color:{color};text-transform:uppercase;'
                 f'letter-spacing:0.04em;margin-bottom:0.3rem;">{escape(label)}</div>'
-                f'<div style="{size}font-weight:700;color:{color};">{decline:.1f}%</div>'
+                f'<div class="{size_cls}" style="font-weight:700;color:{color};">{decline:.1f}%</div>'
                 f'<div style="font-size:0.82rem;color:var(--text);margin-top:0.15rem;">S&amp;P ~{level:,.0f}</div>'
                 f'<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.15rem;">{days_label}</div>'
                 f'</div>'
@@ -1899,11 +2057,11 @@ def _section_historical_parallels(
             _zone("var(--red)", "Pessimistic", be.pessimistic_decline, be.pessimistic_level, be.pessimistic_days),
         ]
 
-        arrow = '<div style="display:flex;align-items:center;color:var(--text-dim);font-size:0.7rem;padding:0 0.15rem;">&#9654;</div>'
+        arrow = '<div class="estimate-arrow">&#9654;</div>'
 
         bottom_html = f"""<div style="margin-bottom:1.25rem;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:0.6rem;">
 <div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:0.6rem;">2026 Bottom Estimate <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400;">(analog-weighted from factor overlap)</span></div>
-<div style="display:flex;gap:0.35rem;align-items:stretch;">
+<div class="estimate-row">
 {arrow.join(zones)}
 </div>
 <div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.6rem;line-height:1.4;">
@@ -1913,7 +2071,7 @@ This is not a prediction — it shows where similar historical crises ended.
 </div>"""
 
     return _collapsible(
-        f"Crisis Context: Historical Parallels — {decline_pct:+.1f}%, strongest overlap: {match_name} ({best_overlap}/{total_f} factors)",
+        f'Crisis Context: Historical Parallels — {decline_pct:+.1f}%<span class="section-detail">, strongest overlap: {escape(match_name)} ({best_overlap}/{total_f} factors)</span>',
         f"""<div class="card">
 {crisis_dna_html}
 {bottom_html}
@@ -1995,7 +2153,7 @@ def _section_supply_chain(cascade_stages: list | None = None) -> str:
         summary = '<div style="padding:0.5rem 0.75rem;background:rgba(234,179,8,0.1);border-radius:0.5rem;margin-bottom:1rem;font-size:0.85rem;"><strong style="color:var(--yellow);">Cascade building</strong> — {n} stages active. Watch for downstream activation.</div>'.format(n=active_count)
 
     return _collapsible(
-        "Crisis Context: Supply Chain Cascade — Strait of Hormuz",
+        'Crisis Context: Supply Chain Cascade<span class="section-detail"> — Strait of Hormuz</span>',
         f"""<div class="card">
 {summary}
 <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.5;">
