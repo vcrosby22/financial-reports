@@ -49,6 +49,16 @@ jobs:
           grep -qE 'Macroeconomic Indicators \(FRED\)|Macro \(FRED\)' docs/index.html \
             || { echo "::error::Report HTML missing FRED/macro markers — check FRED_API_KEY secret and network."; exit 1; }
 
+      - name: Persist risk score history
+        run: |
+          if [ -f data/risk_score_history.jsonl ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/risk_score_history.jsonl
+            git diff --cached --quiet || git commit -m "data: risk score snapshot (${{ github.event_name }})"
+            git push
+          fi
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:

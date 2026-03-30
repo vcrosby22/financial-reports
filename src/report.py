@@ -25,7 +25,7 @@ from .analysis.risk import (
 from .config import load_config
 from .data.database import get_session, init_db
 from .data.models import MarketSnapshot
-from .data.risk_score_log import append_risk_score_log
+from .data.risk_score_log import RiskTrend, append_risk_score_log, compute_trend
 from .data.crypto import fetch_crypto_data
 from .data.forex import fetch_forex_data
 from .data.fundamentals import StockFundamentals, fetch_fundamentals_batch
@@ -196,8 +196,22 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     opportunities = screen_opportunities(market_data, fundamentals, macro_data, health)
     console.print(f"  Found {len(opportunities)} opportunities.")
 
+    console.print("  Computing risk trend...")
+    risk_trend = compute_trend(health)
+    if risk_trend.has_any:
+        parts = []
+        if risk_trend.delta_1d is not None:
+            parts.append(f"1d: {risk_trend.delta_1d:+d}")
+        if risk_trend.delta_1w is not None:
+            parts.append(f"1w: {risk_trend.delta_1w:+d}")
+        if risk_trend.delta_1m is not None:
+            parts.append(f"1m: {risk_trend.delta_1m:+d}")
+        console.print(f"  Risk trend: {', '.join(parts)}")
+    else:
+        console.print("  [dim]No prior risk data — trend indicator hidden.[/dim]")
+
     console.print("  Building HTML...")
-    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities)
+    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend)
 
     if output_path:
         filepath = Path(output_path)
@@ -229,6 +243,7 @@ def _build_html(
     health: MarketHealthReport,
     trend_context: str,
     opportunities: list[Opportunity] | None = None,
+    risk_trend: RiskTrend | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -269,6 +284,8 @@ def _build_html(
     sections = []
     sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi))
     risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance)
+    if risk_trend and risk_trend.has_any:
+        risk_inner += _section_risk_trend(risk_trend)
     risk_inner += _section_risk_score_reader_context(health)
     sections.append(_collapsible(
         f'Risk Overview — <span style="color:{risk_color}">{health.overall_risk.upper()}</span> (Score: {_health_uncapped_score(health)})',
@@ -914,6 +931,48 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     {"<div class='meta' style='margin-top:0.3rem;color:var(--yellow)'>Data gaps: " + ", ".join(health.data_sources_missing) + "</div>" if health.data_sources_missing else ""}
   </div>
 </div>"""
+
+
+def _section_risk_trend(trend: RiskTrend) -> str:
+    """Render risk score trend indicators (daily / weekly / monthly deltas)."""
+
+    def _chip(label: str, delta: int, prev_level: str | None) -> str:
+        if delta > 0:
+            arrow, color, word = "&#9650;", "var(--red)", "up"
+        elif delta < 0:
+            arrow, color, word = "&#9660;", "var(--green)", "down"
+        else:
+            arrow, color, word = "&#9644;", "var(--text-dim)", "flat"
+        level_note = f" ({prev_level.upper()})" if prev_level else ""
+        return (
+            f'<div style="display:inline-flex;align-items:center;gap:0.35rem;'
+            f'background:var(--surface);border:1px solid var(--border);'
+            f'border-radius:0.5rem;padding:0.35rem 0.65rem;font-size:0.82rem;">'
+            f'<span style="font-size:0.7rem;color:{color};">{arrow}</span>'
+            f'<span style="color:var(--text-dim);">{label}:</span>'
+            f'<span style="color:{color};font-weight:600;">{delta:+d}</span>'
+            f'<span style="color:var(--text-dim);font-size:0.72rem;">{level_note}</span>'
+            f'</div>'
+        )
+
+    chips = []
+    if trend.delta_1d is not None:
+        chips.append(_chip("1d", trend.delta_1d, trend.prev_1d_level))
+    if trend.delta_1w is not None:
+        chips.append(_chip("1w", trend.delta_1w, trend.prev_1w_level))
+    if trend.delta_1m is not None:
+        chips.append(_chip("1m", trend.delta_1m, trend.prev_1m_level))
+
+    if not chips:
+        return ""
+
+    return (
+        '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin:0.75rem 0 0.5rem;">'
+        '<span style="font-size:0.78rem;color:var(--text-dim);align-self:center;">'
+        'Score trend (uncapped):</span>'
+        + "".join(chips)
+        + '</div>'
+    )
 
 
 def _section_risk_score_reader_context(health: MarketHealthReport) -> str:

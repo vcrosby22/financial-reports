@@ -3,5 +3,6 @@ __pycache__/
 *.db
 .env
 venv/
-/data/
+/data/*
+!/data/risk_score_history.jsonl
 reports/
