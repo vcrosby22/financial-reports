@@ -343,7 +343,7 @@ def _build_html(
   --pad-block: clamp(0.65rem, -0.1rem + 2.5vw, 2rem);
 }}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html {{ -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }}
+html {{ -webkit-text-size-adjust: 100%; scroll-behavior: smooth; overscroll-behavior-x: none; }}
 
 /* \u2500\u2500 Base: phone-first (360\u2013430 CSS px) \u2500\u2500 */
 .section-anchor {{ scroll-margin-top: 6rem; }}
@@ -444,7 +444,7 @@ pre {{
 }}
 .section-collapse {{
   margin-bottom: 1rem; border: 1px solid var(--border);
-  border-radius: 0.75rem; overflow: hidden;
+  border-radius: 0.75rem; overflow: clip;
 }}
 .section-header {{
   cursor: pointer; padding: 0.85rem 0.75rem;
@@ -460,8 +460,9 @@ pre {{
   color: var(--text-dim);
 }}
 details[open] > .section-header::before {{ transform: rotate(90deg); }}
-.section-body {{ padding: 0 0.65rem 0.85rem; }}
+.section-body {{ padding: 0 0.35rem 0.65rem; }}
 .section-body .card {{ margin-bottom: 0.75rem; }}
+.section-body .table-scroll.card {{ padding: 0.5rem 0.35rem; }}
 .section-body h2 {{ display: none; }}
 .section-body h3 {{ margin-top: 1rem; }}
 .bond-bank-intro {{ margin-bottom: 1rem; }}
@@ -507,6 +508,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 }}
 .table-scroll {{
   overflow-x: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   width: 100%; max-width: 100%; margin-bottom: 0.5rem;
 }}
 .table-scroll.table-edge-hint {{
@@ -563,6 +565,8 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 /* \u2500\u2500 Foldable / mini-tablet (\u2265 600px) \u2500\u2500 */
 @media (min-width: 600px) {{
   .table-scroll.wide-min > table {{ min-width: 22rem; font-size: 0.8rem; }}
+  .section-body {{ padding: 0 0.5rem 0.75rem; }}
+  .section-body .table-scroll.card {{ padding: 0.75rem 0.5rem; }}
 }}
 
 /* \u2500\u2500 Tablet (\u2265 768px) \u2500\u2500 */
@@ -582,6 +586,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .two-col {{ grid-template-columns: 1fr 1fr; }}
   .section-header {{ padding: 0.75rem 1rem; min-height: auto; }}
   .section-body {{ padding: 0 1rem 1rem; }}
+  .section-body .table-scroll.card {{ padding: 1.25rem; }}
   .mobile-rotate-hint {{ display: none; }}
   .subtitle-detail {{ display: block; }}
   .col-m-hide {{ display: table-cell !important; }}
@@ -1416,9 +1421,14 @@ def _section_authoritative_sources() -> str:
 def _section_macro(macro_data: MacroSnapshot) -> str:
     category_order = ("core_macro", "banking_system", "bond_market")
     category_heading = {
-        "core_macro": "Core macro — leading indicators",
-        "banking_system": "Banking system — system-wide aggregates (not CAMELS / not one bank)",
-        "bond_market": "Bond market — Treasuries &amp; investment-grade spreads",
+        "core_macro": "Core macro",
+        "banking_system": "Banking system",
+        "bond_market": "Bond market",
+    }
+    category_subtitle = {
+        "core_macro": "leading indicators",
+        "banking_system": "system-wide aggregates (not CAMELS / not one bank)",
+        "bond_market": "Treasuries &amp; investment-grade spreads",
     }
 
     by_cat: dict[str, list] = {}
@@ -1433,20 +1443,22 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
         change = f"{ind.change:+,.2f}" if ind.change is not None else "—"
         return (
             f"<tr><td><strong>{escape(ind.name)}</strong>"
-            f"<br><span style='font-size:0.75rem;color:var(--text-dim);'>{escape(ind.series_id)}</span></td>"
-            f"<td style='text-align:right'>{ind.value:,.2f}</td>"
+            f"<span class='subtitle-detail' style='font-size:0.75rem;color:var(--text-dim);'>{escape(ind.series_id)}</span></td>"
+            f"<td style='text-align:right;white-space:nowrap;'>{ind.value:,.2f}</td>"
             f"<td class='col-m-hide' style='text-align:right'>{change}</td>"
-            f"<td><span class='tag {signal_class}'>{ind.signal}</span></td>"
+            f"<td style='white-space:nowrap;'><span class='tag {signal_class}'>{ind.signal}</span></td>"
             f"<td class='col-m-hide' style='color:var(--text-dim)'>{escape(ind.description)}</td></tr>"
         )
 
     def _append_category_block(cat: str, inds: list) -> None:
         if not inds:
             return
+        sub = category_subtitle.get(cat, "")
+        sub_html = f" <span class='subtitle-detail' style='font-weight:400;color:var(--text-dim);'>— {sub}</span>" if sub else ""
         rows.append(
             "<tr><td colspan=\"5\" style=\"background:var(--surface2);font-size:0.8rem;padding:0.35rem 0.6rem;"
             "border-top:1px solid var(--border);color:var(--text-dim);\">"
-            f"<strong style=\"color:var(--text);\">{escape(category_heading.get(cat, cat))}</strong></td></tr>"
+            f"<strong style=\"color:var(--text);\">{escape(category_heading.get(cat, cat))}</strong>{sub_html}</td></tr>"
         )
         rows.extend(_macro_indicator_row(ind) for ind in inds)
 
@@ -1488,7 +1500,7 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
         methodology
         + f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
-<thead><tr><th>Indicator</th><th style="text-align:right">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th>Signal</th><th class="col-m-hide">Assessment</th></tr></thead>
+<thead><tr><th>Indicator</th><th style="text-align:right;width:5.5rem;">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th style="width:4.5rem;">Signal</th><th class="col-m-hide">Assessment</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
