@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from rich.console import Console
 
 from .analysis.bond_bank_narrative import build_bond_bank_friend_html
-from .personal.historical import CRASHES, crash_comparison_for_dashboard, get_all_crashes
+from .personal.historical import CRASHES, FACTOR_LABELS, crash_comparison_for_dashboard, get_all_crashes
 from .analysis.memory import build_trend_context
 from .analysis.opportunities import Opportunity, screen_opportunities
 from .analysis.risk import (
@@ -335,7 +335,8 @@ def _build_html(
     sections.append(_section_bond_bank_plain_english(macro_data))
     sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
     sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
-    sections.append(_section_historical_parallels(sp500_price))
+    cascade_active = sum(1 for s in (cascade_stages or []) if getattr(s, 'status', '') == "active")
+    sections.append(_section_historical_parallels(sp500_price, macro_data, cascade_active))
     sections.append(_section_supply_chain(cascade_stages))
     if trend_context:
         sections.append(_section_trend_context(trend_context))
@@ -1761,11 +1762,35 @@ def _section_signals(health: MarketHealthReport) -> str:
     )
 
 
-def _section_historical_parallels(sp500_price: float | None) -> str:
+def _factor_chip(factor: str, is_match: bool = False) -> str:
+    """Render a single factor as a colored chip."""
+    colors = {
+        "commodity_shock": "#f97316", "geopolitical": "#ef4444", "stagflation": "#dc2626",
+        "banking_credit": "#a855f7", "speculation_leverage": "#eab308", "fed_policy": "#3b82f6",
+        "trade_war": "#6366f1", "supply_chain": "#f59e0b", "external_shock": "#06b6d4",
+        "structural_market": "#8b5cf6",
+    }
+    color = colors.get(factor, "var(--text-dim)")
+    label = FACTOR_LABELS.get(factor, factor)
+    border = f"border:1px solid {color};"
+    bg = f"background:{color}22;" if is_match else "background:var(--surface);"
+    return (
+        f'<span style="display:inline-block;{bg}{border}color:{color};'
+        f'border-radius:0.35rem;padding:0.15rem 0.45rem;font-size:0.72rem;'
+        f'font-weight:600;white-space:nowrap;">{escape(label)}</span>'
+    )
+
+
+def _section_historical_parallels(
+    sp500_price: float | None,
+    macro_data: object | None = None,
+    cascade_active_count: int = 0,
+) -> str:
     """Public-safe section comparing current situation to historical crashes."""
     peak = 6900
-    all_crashes = get_all_crashes(sp500_price)
+    all_crashes = get_all_crashes(sp500_price, macro_data, cascade_active_count)
     current_event = next((c for c in all_crashes if c.name.startswith("2026")), None)
+    current_factors = current_event.crisis_factors if current_event else set()
     if current_event:
         decline_pct = current_event.decline_pct
     elif sp500_price:
@@ -1778,23 +1803,63 @@ def _section_historical_parallels(sp500_price: float | None) -> str:
         if crash.name.startswith("2026"):
             continue
         rec = f"{crash.months_to_recovery:.0f} months" if crash.months_to_recovery else "—"
-        oil_tag = '<span style="color:var(--orange);">Yes</span>' if crash.oil_shock else "No"
+        overlap = crash.crisis_factors & current_factors
+        overlap_count = len(overlap)
+        total_current = len(current_factors) if current_factors else 1
+        if overlap_count >= 3:
+            match_color = "var(--red)"
+        elif overlap_count >= 2:
+            match_color = "var(--orange)"
+        elif overlap_count >= 1:
+            match_color = "var(--yellow)"
+        else:
+            match_color = "var(--text-dim)"
+        match_cell = f'<span style="color:{match_color};font-weight:600;">{overlap_count}/{total_current}</span>'
         rows.append(
             f"<tr><td>{escape(crash.name)}</td>"
             f"<td style='text-align:right;color:var(--red);'>{crash.decline_pct:.1f}%</td>"
             f"<td style='text-align:right;'>{crash.days_to_bottom}</td>"
             f"<td style='text-align:right;'>{rec}</td>"
-            f"<td>{oil_tag}</td></tr>"
+            f"<td style='text-align:center;'>{match_cell}</td></tr>"
         )
 
     current_bar_pct = min(abs(decline_pct) / 90 * 100, 100)
-    comparison = crash_comparison_for_dashboard(sp500_price or (peak * (1 + decline_pct / 100)), peak)
+    comparison = crash_comparison_for_dashboard(
+        sp500_price or (peak * (1 + decline_pct / 100)), peak,
+        macro=macro_data, cascade_active_count=cascade_active_count,
+    )
     best_match = comparison.get("best_match")
     match_name = best_match.name if best_match else "1973-74 Oil Crisis"
+    best_overlap = len(best_match.crisis_factors & current_factors) if best_match else 0
+    total_f = len(current_factors) if current_factors else 0
+
+    current_chips = " ".join(_factor_chip(f) for f in sorted(current_factors))
+    dna_rows = []
+    top_matches = comparison.get("similar_crashes", [])[:3]
+    for crash in top_matches:
+        overlap = crash.crisis_factors & current_factors
+        chips = " ".join(
+            _factor_chip(f, is_match=(f in overlap)) for f in sorted(crash.crisis_factors)
+        )
+        ol = len(overlap)
+        dna_rows.append(
+            f'<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">'
+            f'<span style="min-width:10rem;font-size:0.82rem;color:var(--text);">{escape(crash.name)}</span>'
+            f'<span style="font-size:0.75rem;color:var(--text-dim);">({ol}/{total_f})</span>'
+            f'{chips}</div>'
+        )
+
+    crisis_dna_html = f"""<div style="margin-bottom:1.25rem;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:0.6rem;">
+<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:0.5rem;">Crisis DNA — 2026 active factors <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400;">(inferred from live data each run)</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.75rem;">{current_chips}</div>
+<div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:0.5rem;">Top historical matches by factor overlap:</div>
+<div style="display:flex;flex-direction:column;gap:0.4rem;">{"".join(dna_rows)}</div>
+</div>"""
 
     return _collapsible(
-        f"Crisis Context: Historical Parallels — current decline {decline_pct:+.1f}%, closest match: {match_name}",
+        f"Crisis Context: Historical Parallels — {decline_pct:+.1f}%, strongest overlap: {match_name} ({best_overlap}/{total_f} factors)",
         f"""<div class="card">
+{crisis_dna_html}
 <div style="margin-bottom:1rem;">
   <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.3rem;">Current S&amp;P 500 decline from Jan 2026 peak (~6,900)</div>
   <div style="display:flex;align-items:center;gap:0.75rem;">
@@ -1809,13 +1874,18 @@ def _section_historical_parallels(sp500_price: float | None) -> str:
 </div>
 <div class="table-scroll wide-min table-edge-hint sticky-first-col">
 <table>
-<thead><tr><th>Crash</th><th style="text-align:right">Decline</th><th style="text-align:right">Days to Bottom</th><th style="text-align:right">Recovery</th><th>Oil Shock?</th></tr></thead>
+<thead><tr><th>Crash</th><th style="text-align:right">Decline</th><th style="text-align:right">Days to Bottom</th><th style="text-align:right">Recovery</th><th style="text-align:center">Match</th></tr></thead>
 <tbody>
 {"".join(rows)}
 </tbody>
 </table>
 </div>
-<div style="margin-top:1rem;font-size:0.85rem;color:var(--text-dim);line-height:1.6;">
+<div style="margin-top:0.75rem;font-size:0.78rem;color:var(--text-dim);line-height:1.5;">
+<strong>How matching works:</strong> Each crash is tagged with causal factors (commodity shock, geopolitical, etc.) based on
+historical sources (IMF, NBER, Federal Reserve History). The "Match" column shows how many of 2026's active factors
+overlap with each historical crash. Rankings update dynamically as conditions change.
+</div>
+<div style="margin-top:0.75rem;font-size:0.85rem;color:var(--text-dim);line-height:1.6;">
 <strong>Key finding:</strong> Across 8 major US crashes (1907-2020), the market recovered every time.
 The only crash where early withdrawal would have been correct was 1929 — under conditions (no FDIC, no SEC, no Fed backstop)
 that cannot recur in the modern financial system. Average oil-shock recovery: {comparison.get("avg_oil_crash_recovery_months", 0):.0f} months.

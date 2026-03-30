@@ -2,12 +2,47 @@
 
 Used by both the personal defense dashboard and the public report's
 Historical Parallels section. All data from publicly available sources.
+
+Crisis factor taxonomy (causal mechanisms):
+  commodity_shock      — oil/energy/commodity supply disruption
+  geopolitical         — military conflict, embargo, geopolitical trigger
+  stagflation          — simultaneous inflation + stagnant growth, Fed policy trap
+  banking_credit       — banking system failures, credit freezes, trust collapses
+  speculation_leverage — speculative excess, margin debt, overvaluation, asset bubbles
+  fed_policy           — central bank policy error (premature tightening, rate trap)
+  trade_war            — tariffs, protectionism, trade barriers
+  supply_chain         — broad multi-sector supply chain disruption
+  external_shock       — exogenous non-financial event (pandemic, natural disaster)
+  structural_market    — market microstructure/technical failure
+
+Sources: IMF (Claessens & Kose 2013), BIS crisis typology, Reinhart & Rogoff,
+Federal Reserve History, NBER, FCIC, Columbia SIPA CGEP.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+
+
+CRISIS_FACTORS = frozenset({
+    "commodity_shock", "geopolitical", "stagflation", "banking_credit",
+    "speculation_leverage", "fed_policy", "trade_war", "supply_chain",
+    "external_shock", "structural_market",
+})
+
+FACTOR_LABELS: dict[str, str] = {
+    "commodity_shock": "Commodity Shock",
+    "geopolitical": "Geopolitical",
+    "stagflation": "Stagflation",
+    "banking_credit": "Banking/Credit",
+    "speculation_leverage": "Speculation/Leverage",
+    "fed_policy": "Fed Policy Error",
+    "trade_war": "Trade War",
+    "supply_chain": "Supply Chain",
+    "external_shock": "External Shock",
+    "structural_market": "Market Structure",
+}
 
 
 @dataclass
@@ -24,10 +59,11 @@ class CrashEvent:
     days_to_recovery: int | None  # from peak to full recovery
     months_to_recovery: float | None
     index_used: str            # "DJIA" for pre-1957, "S&P 500" after
-    oil_shock: bool
-    withdrawal_correct: bool   # Would 401(k) withdrawal at age 54 have beaten staying invested?
+    oil_shock: bool            # kept for backward compat; superseded by crisis_factors
+    withdrawal_correct: bool
     withdrawal_notes: str
-    parallels_to_2026: str     # What makes this relevant to the current situation
+    parallels_to_2026: str
+    crisis_factors: set[str] = field(default_factory=set)
 
 
 CRASHES: list[CrashEvent] = [
@@ -48,6 +84,7 @@ CRASHES: list[CrashEvent] = [
         withdrawal_correct=False,
         withdrawal_notes="Recovery in ~2.75 years. No 401(k) existed, but equivalent investor recovered fully.",
         parallels_to_2026="Banking system panic; no central bank backstop (Fed created in 1913 as a direct result).",
+        crisis_factors={"banking_credit", "speculation_leverage"},
     ),
     CrashEvent(
         name="1929 Great Depression",
@@ -68,6 +105,7 @@ CRASHES: list[CrashEvent] = [
                          "But context: no FDIC, no SEC, no unemployment insurance, banks physically closed. "
                          "Modern safeguards (FDIC, Fed, SEC, circuit breakers) make a repeat nearly impossible.",
         parallels_to_2026="Tariff wars (Smoot-Hawley then, trade tensions now). But modern safeguards are incomparably stronger.",
+        crisis_factors={"speculation_leverage", "banking_credit", "fed_policy", "trade_war"},
     ),
     CrashEvent(
         name="1937-1938 Recession",
@@ -87,6 +125,7 @@ CRASHES: list[CrashEvent] = [
         withdrawal_notes="Recovery delayed by WWII, but investor at 54 would have recovered by 62. "
                          "Wartime economy eventually drove massive expansion.",
         parallels_to_2026="Fed policy mistake (tightening too early/holding too long). Directly relevant to 2026 Fed dilemma.",
+        crisis_factors={"fed_policy"},
     ),
     CrashEvent(
         name="1973-1974 Oil Crisis",
@@ -106,8 +145,9 @@ CRASHES: list[CrashEvent] = [
         withdrawal_notes="8-year recovery. Long, but investor at 54 recovered by 62. "
                          "Withdrawal at 48% tax+penalty would have been worse than riding it out. "
                          "CRITICAL: Stagflation era — inflation eroded both invested AND withdrawn money.",
-        parallels_to_2026="CLOSEST PARALLEL. Oil shock + war + stagflation. Same Fed trap (can't cut into inflation, "
-                          "can't hold as economy weakens). But 2026 supply chain damage is broader (helium, LNG, fertilizer).",
+        parallels_to_2026="Oil shock + war + stagflation. Same Fed trap (can't cut into inflation, "
+                          "can't hold as economy weakens). 2026 supply chain damage is broader (helium, LNG, fertilizer).",
+        crisis_factors={"commodity_shock", "geopolitical", "stagflation"},
     ),
     CrashEvent(
         name="1987 Black Monday",
@@ -128,6 +168,7 @@ CRASHES: list[CrashEvent] = [
                          "while the market lost 33% and recovered in under 2 years.",
         parallels_to_2026="Speed of decline (single-day crash). Circuit breakers now prevent exact repeat. "
                           "Less relevant — no underlying economic crisis.",
+        crisis_factors={"structural_market", "speculation_leverage"},
     ),
     CrashEvent(
         name="2000-2002 Dot-Com Bust",
@@ -150,6 +191,7 @@ CRASHES: list[CrashEvent] = [
                          "Investor at 54 in 2000 would have recovered by 67 — past 65 but still recovered.",
         parallels_to_2026="High CAPE ratio (44 then, 40.7 now). Overvaluation as an amplifier. "
                           "But 2000 was tech-specific; 2026 is a broad supply shock.",
+        crisis_factors={"speculation_leverage", "geopolitical"},
     ),
     CrashEvent(
         name="2007-2009 Global Financial Crisis",
@@ -171,6 +213,7 @@ CRASHES: list[CrashEvent] = [
                          "the market recovered. Investor at 54 in 2007 was whole by 60.",
         parallels_to_2026="Financial system stress, VIX spikes, credit spreads widening. "
                           "But 2008 was a financial/credit crisis; 2026 is a supply/commodity crisis.",
+        crisis_factors={"banking_credit", "speculation_leverage", "fed_policy"},
     ),
     CrashEvent(
         name="2020 COVID-19 Crash",
@@ -192,6 +235,7 @@ CRASHES: list[CrashEvent] = [
         parallels_to_2026="Sudden external shock, oil price disruption. But COVID recovery was driven "
                           "by unprecedented fiscal stimulus (~$5T). Similar fiscal response unlikely in 2026 "
                           "given current debt levels and inflation.",
+        crisis_factors={"external_shock", "commodity_shock"},
     ),
 ]
 
@@ -199,13 +243,71 @@ _2026_PEAK_DATE = date(2026, 1, 15)
 _2026_PEAK_LEVEL = 6900.0
 
 
-def build_current_crisis_event(sp500_price: float | None = None) -> CrashEvent:
-    """Build a live 2026 crisis entry from the current S&P 500 price."""
+def _infer_2026_factors(
+    macro: object | None = None,
+    cascade_active_count: int = 0,
+) -> set[str]:
+    """Infer which crisis factors are active for 2026 from live data.
+
+    Always-on: commodity_shock (Hormuz), geopolitical (Iran war).
+    Data-driven: stagflation, supply_chain, banking_credit, fed_policy.
+    """
+    factors: set[str] = {"commodity_shock", "geopolitical"}
+
+    if macro is None:
+        factors.add("stagflation")
+        factors.add("supply_chain")
+        return factors
+
+    def _signal(series_id: str) -> str | None:
+        for ind in getattr(macro, "indicators", []):
+            if ind.series_id == series_id:
+                return ind.signal
+        return None
+
+    cpi = _signal("CPIAUCSL")
+    ppi = _signal("PPIACO")
+    gas = _signal("GASREGW")
+    unrate = _signal("UNRATE")
+    indpro = _signal("INDPRO")
+    inflation_hot = cpi in ("warning", "critical") or ppi in ("warning", "critical") or gas in ("warning", "critical")
+    economy_weak = unrate in ("warning", "critical") or indpro in ("warning", "critical")
+    if inflation_hot and economy_weak:
+        factors.add("stagflation")
+    elif inflation_hot:
+        factors.add("stagflation")
+
+    if cascade_active_count >= 2:
+        factors.add("supply_chain")
+
+    hy_spread = _signal("BAMLH0A0HYM2")
+    bbb_spread = _signal("BAMLC0A4CBBB")
+    if hy_spread in ("warning", "critical") or bbb_spread in ("warning", "critical"):
+        factors.add("banking_credit")
+
+    fedfunds = _signal("FEDFUNDS")
+    t10y2y = _signal("T10Y2Y")
+    t10y3m = _signal("T10Y3M")
+    yield_inverted = t10y2y in ("warning", "critical") or t10y3m in ("warning", "critical")
+    if fedfunds in ("warning", "critical") and yield_inverted:
+        factors.add("fed_policy")
+
+    return factors
+
+
+def build_current_crisis_event(
+    sp500_price: float | None = None,
+    macro: object | None = None,
+    cascade_active_count: int = 0,
+) -> CrashEvent:
+    """Build a live 2026 crisis entry with factors inferred from current data."""
     today = date.today()
     price = sp500_price if sp500_price else _2026_PEAK_LEVEL
     trough = min(price, _2026_PEAK_LEVEL)
     decline = ((trough - _2026_PEAK_LEVEL) / _2026_PEAK_LEVEL) * 100 if _2026_PEAK_LEVEL else 0
     days = (today - _2026_PEAK_DATE).days
+
+    factors = _infer_2026_factors(macro, cascade_active_count)
 
     return CrashEvent(
         name="2026 Iran War / Strait of Hormuz (ONGOING)",
@@ -225,39 +327,52 @@ def build_current_crisis_event(sp500_price: float | None = None) -> CrashEvent:
         withdrawal_notes=f"ONGOING. At {decline:.1f}%, far from the -39% breakeven for withdrawal. "
                          "Key difference from past oil shocks: physical infrastructure destruction "
                          "means 3-5 year supply chain disruption even after ceasefire.",
-        parallels_to_2026="This IS 2026. Closest historical parallel: 1973 oil crisis + stagflation.",
+        parallels_to_2026="This IS 2026. Factor matching is data-driven.",
+        crisis_factors=factors,
     )
 
 
-def get_all_crashes(sp500_price: float | None = None) -> list[CrashEvent]:
+def get_all_crashes(
+    sp500_price: float | None = None,
+    macro: object | None = None,
+    cascade_active_count: int = 0,
+) -> list[CrashEvent]:
     """Return all historical crashes plus the live 2026 entry."""
-    return CRASHES + [build_current_crisis_event(sp500_price)]
+    return CRASHES + [build_current_crisis_event(sp500_price, macro, cascade_active_count)]
 
 
-def find_similar_crashes(current_decline_pct: float, is_oil_shock: bool = True, sp500_price: float | None = None) -> list[CrashEvent]:
-    """Find historical crashes with similar characteristics to the current situation."""
-    scored: list[tuple[float, CrashEvent]] = []
-    for crash in get_all_crashes(sp500_price):
+def find_similar_crashes(
+    current_decline_pct: float,
+    sp500_price: float | None = None,
+    macro: object | None = None,
+    cascade_active_count: int = 0,
+    is_oil_shock: bool = True,  # kept for backward compat, ignored by new algorithm
+) -> list[CrashEvent]:
+    """Score historical crashes by factor overlap with 2026 + decline similarity."""
+    all_crashes = get_all_crashes(sp500_price, macro, cascade_active_count)
+    current_event = next((c for c in all_crashes if c.name.startswith("2026")), None)
+    current_factors = current_event.crisis_factors if current_event else set()
+
+    scored: list[tuple[float, int, CrashEvent]] = []
+    for crash in all_crashes:
         if crash.name.startswith("2026"):
             continue
-        score = 0.0
+        overlap = crash.crisis_factors & current_factors
+        factor_score = len(overlap) * 2.0
+
         decline_diff = abs(abs(current_decline_pct) - abs(crash.decline_pct))
-        if decline_diff < 10:
-            score += 3.0
-        elif decline_diff < 20:
-            score += 1.5
-        if is_oil_shock and crash.oil_shock:
-            score += 4.0
-        if crash.parallels_to_2026 and "CLOSEST" in crash.parallels_to_2026:
-            score += 2.0
-        scored.append((score, crash))
-    scored.sort(key=lambda x: -x[0])
-    return [crash for _, crash in scored if _ > 0]
+        decline_score = 3.0 if decline_diff < 10 else (1.5 if decline_diff < 20 else 0.0)
+
+        total = factor_score + decline_score
+        scored.append((total, len(overlap), crash))
+
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    return [crash for _, _, crash in scored if _ > 0]
 
 
-def withdrawal_verdict_summary(sp500_price: float | None = None) -> str:
+def withdrawal_verdict_summary(sp500_price: float | None = None, **kwargs) -> str:
     """Summarize across all crashes: how often was withdrawal the right call?"""
-    all_crashes = get_all_crashes(sp500_price)
+    all_crashes = get_all_crashes(sp500_price, **kwargs)
     total = len([c for c in all_crashes if not c.name.startswith("2026")])
     correct = sum(1 for c in all_crashes if c.withdrawal_correct and not c.name.startswith("2026"))
     return (
@@ -272,14 +387,16 @@ def withdrawal_verdict_summary(sp500_price: float | None = None) -> str:
 def crash_comparison_for_dashboard(
     sp500_current: float,
     sp500_peak: float = 6900,
+    macro: object | None = None,
+    cascade_active_count: int = 0,
 ) -> dict:
     """Generate a comparison summary for the personal dashboard."""
     current_decline = ((sp500_current - sp500_peak) / sp500_peak) * 100
 
-    similar = find_similar_crashes(current_decline, is_oil_shock=True, sp500_price=sp500_current)
+    similar = find_similar_crashes(current_decline, sp500_price=sp500_current, macro=macro, cascade_active_count=cascade_active_count)
     best_match = similar[0] if similar else None
 
-    all_crashes = get_all_crashes(sp500_current)
+    all_crashes = get_all_crashes(sp500_current, macro, cascade_active_count)
     past_oil = [c for c in all_crashes if c.oil_shock and not c.name.startswith("2026")]
     avg_oil_decline = sum(abs(c.decline_pct) for c in past_oil) / len(past_oil) if past_oil else 0
     avg_oil_recovery_months = sum(
@@ -298,6 +415,6 @@ def crash_comparison_for_dashboard(
         "avg_oil_crash_decline": avg_oil_decline,
         "avg_oil_crash_recovery_months": avg_oil_recovery_months,
         "worst_non_depression": worst_non_depression,
-        "withdrawal_verdict": withdrawal_verdict_summary(sp500_current),
+        "withdrawal_verdict": withdrawal_verdict_summary(sp500_current, macro=macro, cascade_active_count=cascade_active_count),
         "crashes_where_withdrawal_correct": [c for c in all_crashes if c.withdrawal_correct],
     }
