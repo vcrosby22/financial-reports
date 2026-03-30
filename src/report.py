@@ -1525,11 +1525,12 @@ def _section_fundamentals(fundamentals: dict[str, StockFundamentals], name_looku
         completeness = f"{f.data_completeness:.0%}"
 
         rows.append(
-            f"<tr><td><strong>{escape(ticker)}</strong><br><span style='font-size:0.75rem;color:var(--text-dim);'>{name}</span></td>"
-            f"<td><span class='tag {health_class}'>{f.fundamental_health}</span></td>"
-            f"<td class='{eps_style}'>{eps}</td>"
-            f"<td class='{insider_style}'>{insider}</td>"
-            f"<td style='text-align:right'>{upside}</td>"
+            f"<tr><td style='white-space:nowrap;'><strong>{escape(ticker)}</strong>"
+            f"<span class='subtitle-detail' style='font-size:0.75rem;color:var(--text-dim);'>{name}</span></td>"
+            f"<td style='white-space:nowrap;'><span class='tag {health_class}'>{f.fundamental_health}</span></td>"
+            f"<td class='{eps_style}' style='white-space:nowrap;'>{eps}</td>"
+            f"<td class='{insider_style}' style='white-space:nowrap;'>{insider}</td>"
+            f"<td style='text-align:right;white-space:nowrap;'>{upside}</td>"
             f"<td class='col-m-hide' style='text-align:right'>{de}</td>"
             f"<td class='col-m-hide' style='text-align:right'>{roe}</td>"
             f"<td class='col-m-hide' style='text-align:right'>{completeness}</td></tr>"
