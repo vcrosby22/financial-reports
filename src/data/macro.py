@@ -23,11 +23,17 @@ FRED_SERIES: list[tuple[str, str, str]] = [
     ("UMCSENT", "Consumer Confidence (UMich)", "core_macro"),
     ("FEDFUNDS", "Fed Funds Rate", "core_macro"),
     ("M2SL", "M2 Money Supply", "core_macro"),
+    ("UNRATE", "Unemployment Rate", "core_macro"),
     ("TOTBKCR", "Total Bank Credit (All Commercial Banks)", "banking_system"),
     ("WALCL", "Fed Total Assets (Balance Sheet)", "banking_system"),
     ("DGS10", "10-Year Treasury Constant Maturity Yield", "bond_market"),
     ("DGS2", "2-Year Treasury Constant Maturity Yield", "bond_market"),
     ("BAMLC0A4CBBB", "ICE BofA BBB US Corporate OAS", "bond_market"),
+    ("CPIAUCSL", "CPI All Items", "inflation"),
+    ("PPIACO", "PPI All Commodities", "inflation"),
+    ("GASREGW", "US Regular Gasoline Price", "supply_chain"),
+    ("DCOILBRENTEU", "Brent Crude Oil (FRED)", "supply_chain"),
+    ("INDPRO", "Industrial Production Index", "supply_chain"),
 ]
 
 
@@ -285,7 +291,6 @@ def _classify_signal(indicator: MacroIndicator):
             indicator.description = "Policy-sensitive front-end yield (use with 10Y for curve shape)"
 
     elif sid == "BAMLC0A4CBBB":
-        # ICE BofA BBB OAS — investment-grade credit stress (not HY)
         if indicator.value >= 2.75:
             indicator.signal = "critical"
             indicator.description = "BBB option-adjusted spread very wide — IG corporate stress"
@@ -298,6 +303,101 @@ def _classify_signal(indicator: MacroIndicator):
         else:
             indicator.signal = "neutral"
             indicator.description = "Investment-grade (BBB) spread within non-crisis band"
+
+    elif sid == "UNRATE":
+        if indicator.value >= 6.0:
+            indicator.signal = "critical"
+            indicator.description = "Unemployment at recession levels"
+        elif indicator.value >= 5.0:
+            indicator.signal = "warning"
+            indicator.description = "Unemployment elevated — labor market deteriorating"
+        elif indicator.change is not None and indicator.change >= 0.3:
+            indicator.signal = "warning"
+            indicator.description = f"Unemployment rising fast ({indicator.change:+.1f} pp) — Sahm Rule territory"
+        elif indicator.change is not None and indicator.change >= 0.1:
+            indicator.signal = "bearish"
+            indicator.description = "Unemployment edging up"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Labor market healthy"
+
+    elif sid == "CPIAUCSL":
+        if indicator.previous_value and indicator.previous_value > 0:
+            yoy_approx = ((indicator.value - indicator.previous_value) / indicator.previous_value) * 100
+            if yoy_approx > 6:
+                indicator.signal = "critical"
+                indicator.description = f"CPI surging (~{yoy_approx:.1f}% implied change) — stagflation risk"
+            elif yoy_approx > 4:
+                indicator.signal = "warning"
+                indicator.description = f"CPI elevated (~{yoy_approx:.1f}% implied change) — inflation sticky"
+            elif yoy_approx > 3:
+                indicator.signal = "bearish"
+                indicator.description = f"CPI above target (~{yoy_approx:.1f}% implied change)"
+            else:
+                indicator.signal = "neutral"
+                indicator.description = f"CPI near target (~{yoy_approx:.1f}% implied change)"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"CPI level: {indicator.value:,.1f} (index)"
+
+    elif sid == "PPIACO":
+        if indicator.change is not None and indicator.change > 8:
+            indicator.signal = "critical"
+            indicator.description = "Producer prices surging — cost-push inflation accelerating"
+        elif indicator.change is not None and indicator.change > 3:
+            indicator.signal = "warning"
+            indicator.description = "Producer prices rising — input costs increasing"
+        elif indicator.change is not None and indicator.change < -3:
+            indicator.signal = "bearish"
+            indicator.description = "Producer prices falling — demand destruction signal"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Producer prices stable"
+
+    elif sid == "GASREGW":
+        if indicator.value >= 5.0:
+            indicator.signal = "critical"
+            indicator.description = f"Gasoline at ${indicator.value:.2f}/gal — consumer spending squeeze"
+        elif indicator.value >= 4.0:
+            indicator.signal = "warning"
+            indicator.description = f"Gasoline at ${indicator.value:.2f}/gal — elevated energy costs"
+        elif indicator.value >= 3.5:
+            indicator.signal = "bearish"
+            indicator.description = f"Gasoline at ${indicator.value:.2f}/gal — above comfort zone"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Gasoline at ${indicator.value:.2f}/gal — manageable"
+
+    elif sid == "DCOILBRENTEU":
+        if indicator.value >= 120:
+            indicator.signal = "critical"
+            indicator.description = f"Brent at ${indicator.value:.0f} — crisis-level oil prices"
+        elif indicator.value >= 95:
+            indicator.signal = "warning"
+            indicator.description = f"Brent at ${indicator.value:.0f} — elevated, supply chain stress likely"
+        elif indicator.value >= 80:
+            indicator.signal = "bearish"
+            indicator.description = f"Brent at ${indicator.value:.0f} — above long-term average"
+        elif indicator.value <= 50:
+            indicator.signal = "bearish"
+            indicator.description = f"Brent at ${indicator.value:.0f} — demand destruction signal"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Brent at ${indicator.value:.0f} — typical range"
+
+    elif sid == "INDPRO":
+        if indicator.change is not None and indicator.change < -1.0:
+            indicator.signal = "critical"
+            indicator.description = "Industrial production contracting sharply — recession signal"
+        elif indicator.change is not None and indicator.change < -0.3:
+            indicator.signal = "warning"
+            indicator.description = "Industrial production declining — manufacturing slowdown"
+        elif indicator.change is not None and indicator.change > 0.5:
+            indicator.signal = "bullish"
+            indicator.description = "Industrial production growing — factory output expanding"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Industrial production stable"
 
 
 def apply_derived_macro_flags(snapshot: MacroSnapshot) -> None:

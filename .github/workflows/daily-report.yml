@@ -49,13 +49,19 @@ jobs:
           grep -qE 'Macroeconomic Indicators \(FRED\)|Macro \(FRED\)' docs/index.html \
             || { echo "::error::Report HTML missing FRED/macro markers — check FRED_API_KEY secret and network."; exit 1; }
 
-      - name: Persist risk score history
+      - name: Persist data history files
         run: |
-          if [ -f data/risk_score_history.jsonl ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/risk_score_history.jsonl
-            git diff --cached --quiet || git commit -m "data: risk score snapshot (${{ github.event_name }})"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          changed=false
+          for f in data/risk_score_history.jsonl data/supply_chain_history.jsonl; do
+            if [ -f "$f" ]; then
+              git add "$f"
+              changed=true
+            fi
+          done
+          if [ "$changed" = true ]; then
+            git diff --cached --quiet || git commit -m "data: snapshot (${{ github.event_name }})"
             git push
           fi
 

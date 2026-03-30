@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from rich.console import Console
 
 from .analysis.bond_bank_narrative import build_bond_bank_friend_html
-from .personal.historical import CRASHES, crash_comparison_for_dashboard
+from .personal.historical import CRASHES, crash_comparison_for_dashboard, get_all_crashes
 from .analysis.memory import build_trend_context
 from .analysis.opportunities import Opportunity, screen_opportunities
 from .analysis.risk import (
@@ -147,6 +147,13 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         console.print("  Commodities (oil)...")
         commodities = fetch_multiple(commodity_tickers, asset_type="commodity")
 
+    supply_chain_proxies: dict[str, dict] = {}
+    sc_tickers = config.get("supply_chain_proxies", [])
+    if sc_tickers:
+        console.print("  Supply chain proxies...")
+        for item in fetch_multiple(sc_tickers, asset_type="supply_chain_proxy"):
+            supply_chain_proxies[item["ticker"]] = item
+
     market_data = {"indices": indices, "stocks": stocks, "etfs": etfs, "crypto": crypto, "forex": forex, "commodities": commodities}
 
     console.print("  Macro indicators (FRED)...")
@@ -210,8 +217,23 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     else:
         console.print("  [dim]No prior risk data — trend indicator hidden.[/dim]")
 
+    console.print("  Evaluating supply chain cascade...")
+    from .analysis.supply_chain import CascadeStage, evaluate_cascade, persist_cascade_snapshot
+    cascade_stages = evaluate_cascade(supply_chain_proxies, macro_data, commodities)
+    active_stages = [s for s in cascade_stages if s.status == "active"]
+    console.print(f"  Cascade: {len(active_stages)} active, {len(cascade_stages) - len(active_stages)} projected/not_started")
+    sc_log = persist_cascade_snapshot(cascade_stages)
+    if sc_log:
+        console.print(f"[dim]Supply chain log: {sc_log}[/dim]")
+
+    console.print("  Computing forward projection...")
+    from .analysis.projection import RiskProjection, compute_projection
+    active_cascade_count = len([s for s in cascade_stages if s.status == "active"])
+    projection = compute_projection(risk_trend, macro_data, active_cascade_count)
+    console.print(f"  Projection: {projection.label} (confidence {projection.confidence:.0%})")
+
     console.print("  Building HTML...")
-    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend)
+    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend, cascade_stages, projection)
 
     if output_path:
         filepath = Path(output_path)
@@ -244,6 +266,8 @@ def _build_html(
     trend_context: str,
     opportunities: list[Opportunity] | None = None,
     risk_trend: RiskTrend | None = None,
+    cascade_stages: list | None = None,
+    projection: object | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -286,6 +310,8 @@ def _build_html(
     risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance)
     if risk_trend and risk_trend.has_any:
         risk_inner += _section_risk_trend(risk_trend)
+    if projection and hasattr(projection, 'direction'):
+        risk_inner += _section_projection(projection)
     risk_inner += _section_risk_score_reader_context(health)
     sections.append(_collapsible(
         f'Risk Overview — <span style="color:{risk_color}">{health.overall_risk.upper()}</span> (Score: {_health_uncapped_score(health)})',
@@ -310,7 +336,7 @@ def _build_html(
     sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
     sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
     sections.append(_section_historical_parallels(sp500_price))
-    sections.append(_section_supply_chain())
+    sections.append(_section_supply_chain(cascade_stages))
     if trend_context:
         sections.append(_section_trend_context(trend_context))
     sections.append(_section_authoritative_sources())
@@ -977,6 +1003,35 @@ def _section_risk_trend(trend: RiskTrend) -> str:
         'Score trend (uncapped):</span>'
         + "".join(chips)
         + '</div>'
+    )
+
+
+def _section_projection(proj: object) -> str:
+    """Render the forward-looking risk projection chip."""
+    direction = getattr(proj, 'direction', 'stable')
+    confidence = getattr(proj, 'confidence', 0.0)
+    factors = getattr(proj, 'factors', [])
+    color = getattr(proj, 'color_var', 'var(--text-dim)')
+    label = getattr(proj, 'label', 'STABLE')
+
+    icon = {"worsening": "&#9650;", "stable": "&#9644;", "improving": "&#9660;"}.get(direction, "&#9644;")
+    conf_pct = f"{confidence:.0%}"
+
+    factor_html = ""
+    if factors:
+        items = "".join(f"<li>{escape(f)}</li>" for f in factors[:5])
+        factor_html = f"<ul style='margin:0.4rem 0 0 1rem;padding:0;font-size:0.78rem;color:var(--text-dim);'>{items}</ul>"
+
+    return (
+        f'<div style="margin:0.75rem 0 0.5rem;padding:0.65rem 0.85rem;'
+        f'background:var(--surface);border:1px solid var(--border);border-radius:0.6rem;">'
+        f'<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">'
+        f'<span style="font-size:0.82rem;color:var(--text-dim);">Forward outlook:</span>'
+        f'<span style="font-size:1rem;color:{color};font-weight:700;">{icon} {label}</span>'
+        f'<span style="font-size:0.72rem;color:var(--text-dim);">(confidence {conf_pct})</span>'
+        f'</div>'
+        f'{factor_html}'
+        f'</div>'
     )
 
 
@@ -1709,13 +1764,17 @@ def _section_signals(health: MarketHealthReport) -> str:
 def _section_historical_parallels(sp500_price: float | None) -> str:
     """Public-safe section comparing current situation to historical crashes."""
     peak = 6900
-    if sp500_price:
+    all_crashes = get_all_crashes(sp500_price)
+    current_event = next((c for c in all_crashes if c.name.startswith("2026")), None)
+    if current_event:
+        decline_pct = current_event.decline_pct
+    elif sp500_price:
         decline_pct = ((sp500_price - peak) / peak) * 100
     else:
         decline_pct = -7.5
 
     rows = []
-    for crash in CRASHES:
+    for crash in all_crashes:
         if crash.name.startswith("2026"):
             continue
         rec = f"{crash.months_to_recovery:.0f} months" if crash.months_to_recovery else "—"
@@ -1766,36 +1825,56 @@ that cannot recur in the modern financial system. Average oil-shock recovery: {c
     )
 
 
-def _section_supply_chain() -> str:
-    """Public-safe supply chain risk monitor — no personal data."""
-    cascade_stages = [
-        ("Week 1-2", "Oil Price Shock", "Brent crude spikes, WTI follows. Gasoline prices at pump rise within days.", True),
-        ("Month 1-2", "Energy Cost Cascade", "Natural gas prices spike (LNG rerouting). Electricity costs rise in Europe/Asia. Industrial production slows.", True),
-        ("Month 2-4", "Helium &amp; Semiconductor Squeeze", "Helium spot prices surge. Semiconductor fabs reduce output. Lead times extend to 6-12 months for advanced chips.", True),
-        ("Month 3-6", "Fertilizer &amp; Food Pressure", "Urea/ammonia prices spike. Spring planting disrupted. Food inflation becomes visible in grocery prices.", True),
-        ("Month 4-8", "Pharmaceutical Delays", "India flags raw material shortages. Generic drug supply chains lengthen. Some medications face spot shortages.", False),
-        ("Month 6-12", "Industrial Slowdown", "Petrochemical feedstock shortages. Plastics and packaging costs rise. Manufacturing slows in chemical-dependent sectors.", False),
-        ("Year 1-3", "Infrastructure Rebuild", "Even after ceasefire, Ras Laffan and Gulf infrastructure require years to rebuild. LNG and helium supply remain constrained.", False),
-        ("Year 3-5+", "New Supply Equilibrium", "Alternative supply chains mature. New helium plants (US, Russia, Algeria) reach capacity. Markets find new equilibrium at higher price levels.", False),
-    ]
+def _section_supply_chain(cascade_stages: list | None = None) -> str:
+    """Public-safe supply chain risk monitor — driven by live data when available."""
+    if cascade_stages:
+        stage_rows = []
+        for stage in cascade_stages:
+            if stage.status == "active":
+                status_html = f'<span style="color:var(--red);font-weight:600;">ACTIVE</span>'
+                conf_html = f' <span style="font-size:0.7rem;color:var(--text-dim);">({stage.confidence:.0%})</span>'
+                bg = "background:rgba(239,68,68,0.08);"
+            elif stage.status == "projected":
+                status_html = '<span style="color:var(--yellow);font-weight:600;">Projected</span>'
+                conf_html = f' <span style="font-size:0.7rem;color:var(--text-dim);">({stage.confidence:.0%})</span>' if stage.confidence >= 0.2 else ''
+                bg = "background:rgba(234,179,8,0.05);"
+            else:
+                status_html = '<span style="color:var(--text-dim);">—</span>'
+                conf_html = ''
+                bg = ""
 
-    stage_rows = []
-    for timeframe, name, desc, is_active in cascade_stages:
-        status = '<span style="color:var(--red);font-weight:600;">ACTIVE</span>' if is_active else '<span style="color:var(--text-dim);">Projected</span>'
-        bg = "background:rgba(239,68,68,0.08);" if is_active else ""
-        stage_rows.append(
-            f'<tr style="{bg}"><td style="white-space:nowrap;font-weight:600;">{timeframe}</td>'
-            f"<td><strong>{name}</strong><br><span style='font-size:0.8rem;color:var(--text-dim);'>{desc}</span></td>"
-            f"<td>{status}</td></tr>"
-        )
+            evidence_html = ""
+            if stage.evidence:
+                evidence_items = "".join(f"<li>{escape(e)}</li>" for e in stage.evidence[:3])
+                evidence_html = f"<ul style='margin:0.25rem 0 0 1rem;padding:0;font-size:0.75rem;color:var(--text-dim);'>{evidence_items}</ul>"
+
+            stage_rows.append(
+                f'<tr style="{bg}"><td style="white-space:nowrap;font-weight:600;">{escape(stage.timeframe)}</td>'
+                f"<td><strong>{escape(stage.name)}</strong><br>"
+                f"<span style='font-size:0.8rem;color:var(--text-dim);'>{escape(stage.description)}</span>"
+                f"{evidence_html}</td>"
+                f"<td style='white-space:nowrap;'>{status_html}{conf_html}</td></tr>"
+            )
+    else:
+        stage_rows = [
+            '<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:1.5rem;">Supply chain data unavailable this run.</td></tr>'
+        ]
+
+    active_count = sum(1 for s in (cascade_stages or []) if s.status == "active")
+    summary = ""
+    if active_count >= 4:
+        summary = '<div style="padding:0.5rem 0.75rem;background:rgba(239,68,68,0.12);border-radius:0.5rem;margin-bottom:1rem;font-size:0.85rem;"><strong style="color:var(--red);">Broad cascade underway</strong> — {n} of {t} stages active. Supply chain stress is spreading across sectors.</div>'.format(n=active_count, t=len(cascade_stages or []))
+    elif active_count >= 2:
+        summary = '<div style="padding:0.5rem 0.75rem;background:rgba(234,179,8,0.1);border-radius:0.5rem;margin-bottom:1rem;font-size:0.85rem;"><strong style="color:var(--yellow);">Cascade building</strong> — {n} stages active. Watch for downstream activation.</div>'.format(n=active_count)
 
     return _collapsible(
         "Crisis Context: Supply Chain Cascade — Strait of Hormuz",
         f"""<div class="card">
+{summary}
 <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.5;">
 The Strait of Hormuz carries ~21% of global oil, ~25% of global LNG, and hosts the world's largest helium processing
 facility at Ras Laffan, Qatar. Disruption creates a cascading timeline of impacts far beyond oil prices.
-This is publicly sourced information — not personal financial data.
+Statuses are evaluated from live market data each run.
 </div>
 <div class="table-scroll table-edge-hint">
 <table>

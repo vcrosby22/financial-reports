@@ -193,33 +193,51 @@ CRASHES: list[CrashEvent] = [
                           "by unprecedented fiscal stimulus (~$5T). Similar fiscal response unlikely in 2026 "
                           "given current debt levels and inflation.",
     ),
-    CrashEvent(
+]
+
+_2026_PEAK_DATE = date(2026, 1, 15)
+_2026_PEAK_LEVEL = 6900.0
+
+
+def build_current_crisis_event(sp500_price: float | None = None) -> CrashEvent:
+    """Build a live 2026 crisis entry from the current S&P 500 price."""
+    today = date.today()
+    price = sp500_price if sp500_price else _2026_PEAK_LEVEL
+    trough = min(price, _2026_PEAK_LEVEL)
+    decline = ((trough - _2026_PEAK_LEVEL) / _2026_PEAK_LEVEL) * 100 if _2026_PEAK_LEVEL else 0
+    days = (today - _2026_PEAK_DATE).days
+
+    return CrashEvent(
         name="2026 Iran War / Strait of Hormuz (ONGOING)",
         trigger="Iran war, Strait of Hormuz closure, oil shock, Ras Laffan destruction, supply chain cascade",
-        peak_date=date(2026, 1, 15),
-        trough_date=date(2026, 3, 27),  # ongoing — this is today, not the trough
-        peak_level=6900.0,
-        trough_level=6385.0,  # updated live
-        decline_pct=-7.5,     # updated live
-        days_to_bottom=71,    # still ongoing
+        peak_date=_2026_PEAK_DATE,
+        trough_date=today,
+        peak_level=_2026_PEAK_LEVEL,
+        trough_level=trough,
+        decline_pct=round(decline, 1),
+        days_to_bottom=days,
         recovery_date=None,
         days_to_recovery=None,
         months_to_recovery=None,
         index_used="S&P 500",
         oil_shock=True,
         withdrawal_correct=False,
-        withdrawal_notes="ONGOING. At -7.5%, far from the -39% breakeven for withdrawal. "
+        withdrawal_notes=f"ONGOING. At {decline:.1f}%, far from the -39% breakeven for withdrawal. "
                          "Key difference from past oil shocks: physical infrastructure destruction "
                          "means 3-5 year supply chain disruption even after ceasefire.",
         parallels_to_2026="This IS 2026. Closest historical parallel: 1973 oil crisis + stagflation.",
-    ),
-]
+    )
 
 
-def find_similar_crashes(current_decline_pct: float, is_oil_shock: bool = True) -> list[CrashEvent]:
+def get_all_crashes(sp500_price: float | None = None) -> list[CrashEvent]:
+    """Return all historical crashes plus the live 2026 entry."""
+    return CRASHES + [build_current_crisis_event(sp500_price)]
+
+
+def find_similar_crashes(current_decline_pct: float, is_oil_shock: bool = True, sp500_price: float | None = None) -> list[CrashEvent]:
     """Find historical crashes with similar characteristics to the current situation."""
     scored: list[tuple[float, CrashEvent]] = []
-    for crash in CRASHES:
+    for crash in get_all_crashes(sp500_price):
         if crash.name.startswith("2026"):
             continue
         score = 0.0
@@ -237,10 +255,11 @@ def find_similar_crashes(current_decline_pct: float, is_oil_shock: bool = True) 
     return [crash for _, crash in scored if _ > 0]
 
 
-def withdrawal_verdict_summary() -> str:
+def withdrawal_verdict_summary(sp500_price: float | None = None) -> str:
     """Summarize across all crashes: how often was withdrawal the right call?"""
-    total = len([c for c in CRASHES if not c.name.startswith("2026")])
-    correct = sum(1 for c in CRASHES if c.withdrawal_correct and not c.name.startswith("2026"))
+    all_crashes = get_all_crashes(sp500_price)
+    total = len([c for c in all_crashes if not c.name.startswith("2026")])
+    correct = sum(1 for c in all_crashes if c.withdrawal_correct and not c.name.startswith("2026"))
     return (
         f"Across {total} major US market crashes (1907-2020), early withdrawal "
         f"would have been the mathematically correct choice in {correct} out of {total} cases "
@@ -257,17 +276,18 @@ def crash_comparison_for_dashboard(
     """Generate a comparison summary for the personal dashboard."""
     current_decline = ((sp500_current - sp500_peak) / sp500_peak) * 100
 
-    similar = find_similar_crashes(current_decline, is_oil_shock=True)
+    similar = find_similar_crashes(current_decline, is_oil_shock=True, sp500_price=sp500_current)
     best_match = similar[0] if similar else None
 
-    past_oil = [c for c in CRASHES if c.oil_shock and not c.name.startswith("2026")]
+    all_crashes = get_all_crashes(sp500_current)
+    past_oil = [c for c in all_crashes if c.oil_shock and not c.name.startswith("2026")]
     avg_oil_decline = sum(abs(c.decline_pct) for c in past_oil) / len(past_oil) if past_oil else 0
     avg_oil_recovery_months = sum(
         c.months_to_recovery for c in past_oil if c.months_to_recovery
     ) / len([c for c in past_oil if c.months_to_recovery]) if past_oil else 0
 
     worst_non_depression = max(
-        (c for c in CRASHES if not c.name.startswith("2026") and c.name != "1929 Great Depression"),
+        (c for c in all_crashes if not c.name.startswith("2026") and c.name != "1929 Great Depression"),
         key=lambda c: abs(c.decline_pct),
     )
 
@@ -278,6 +298,6 @@ def crash_comparison_for_dashboard(
         "avg_oil_crash_decline": avg_oil_decline,
         "avg_oil_crash_recovery_months": avg_oil_recovery_months,
         "worst_non_depression": worst_non_depression,
-        "withdrawal_verdict": withdrawal_verdict_summary(),
-        "crashes_where_withdrawal_correct": [c for c in CRASHES if c.withdrawal_correct],
+        "withdrawal_verdict": withdrawal_verdict_summary(sp500_current),
+        "crashes_where_withdrawal_correct": [c for c in all_crashes if c.withdrawal_correct],
     }

@@ -113,10 +113,19 @@ watchlist:
     - GBP/USD
     - USD/JPY
 
-# Commodities — oil (Brent/WTI) for public report KPIs and market table
+# Commodities — oil is a critical macro signal for the personal defense dashboard
 commodities:
   - BZ=F      # Brent Crude Futures (international benchmark)
   - CL=F      # WTI Crude Futures (US benchmark)
+
+# Supply chain proxy tickers — fetched via yfinance for cascade engine
+supply_chain_proxies:
+  - NG=F      # Natural Gas futures
+  - ZW=F      # Wheat futures
+  - ZC=F      # Corn futures
+  - HG=F      # Copper futures
+  - SOXX      # PHLX Semiconductor ETF
+  - DBA       # Invesco DB Agriculture Fund
 
 # Market indices to track for overall health
 market_indices:
