@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "snapshot_calendar": "America/New_York",
+  "by_date": {
+    "2026-04-02": {
+      "snapshot_date": "2026-04-02",
+      "ts_utc": "2026-04-02T17:58:40.654006+00:00",
+      "score": 100,
+      "score_uncapped": 350,
+      "overall_risk": "catastrophic",
+      "critical_count": 6,
+      "warning_count": 13,
+      "leading_signal_count": 11,
+      "source": "github_actions",
+      "github_sha": "ef090a8fc3f05480733932e68a9ea7aab1730b34",
+      "github_run_id": "23914434257"
+    }
+  }
+}
