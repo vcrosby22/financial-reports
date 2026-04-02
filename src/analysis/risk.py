@@ -70,6 +70,46 @@ _CRISIS_EXPLANATION = (
     "is to not buy right now. Focus on preserving what you have."
 )
 
+DISPLAY_LABELS: dict[str, str] = {
+    "low": "LOW",
+    "moderate": "MODERATE",
+    "elevated": "ELEVATED",
+    "high": "HIGH",
+    "acute_stress": "ACUTE STRESS",
+    "compounding_stress": "COMPOUNDING STRESS",
+    "severe_stress": "SEVERE STRESS",
+    "heavy_stress": "HEAVY STRESS",
+}
+
+LEGACY_SLUG_MAP: dict[str, str] = {
+    "critical": "acute_stress",
+    "severe": "compounding_stress",
+    "extreme": "severe_stress",
+    "catastrophic": "heavy_stress",
+}
+
+
+def display_label(slug: str) -> str:
+    """Map an internal slug (current or legacy) to the reader-facing label."""
+    canonical = LEGACY_SLUG_MAP.get(slug, slug)
+    return DISPLAY_LABELS.get(canonical, canonical.upper())
+
+
+def direction_word(delta_1d: int | None) -> str | None:
+    """Map a 1-day score delta to a direction subbucket label."""
+    if delta_1d is None:
+        return None
+    if delta_1d > 30:
+        return "Increasing Rapidly"
+    if delta_1d >= 4:
+        return "Increasing Incrementally"
+    if delta_1d >= -3:
+        return "Holding"
+    if delta_1d >= -30:
+        return "Easing Incrementally"
+    return "Easing Rapidly"
+
+
 POSITION_SIZING = {
     "low": {
         "max_position": "3–5%",
@@ -105,10 +145,10 @@ POSITION_SIZING = {
             "are necessary at all right now."
         ),
     },
-    "critical": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION},
-    "severe": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Multiple compounding crises detected."},
-    "extreme": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Broad systemic failure signals present."},
-    "catastrophic": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Unprecedented convergence of risk signals."},
+    "acute_stress": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION},
+    "compounding_stress": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Multiple compounding crises detected."},
+    "severe_stress": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Broad systemic failure signals present."},
+    "heavy_stress": {"max_position": "0%", "stop_loss": "N/A", "explanation": _CRISIS_EXPLANATION + " Unprecedented convergence of risk signals."},
 }
 
 POSITION_SIZING_BY_SCORE = [
@@ -556,13 +596,13 @@ def _score_to_level(score: int) -> str:
     are visible even after the 0-100 display cap.
     """
     if score >= 200:
-        return "catastrophic"
+        return "heavy_stress"
     if score >= 150:
-        return "extreme"
+        return "severe_stress"
     if score >= 100:
-        return "severe"
+        return "compounding_stress"
     if score >= 80:
-        return "critical"
+        return "acute_stress"
     if score >= 60:
         return "high"
     if score >= 40:

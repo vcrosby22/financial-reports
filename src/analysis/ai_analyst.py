@@ -19,6 +19,7 @@ from anthropic import Anthropic
 from rich.console import Console
 
 from ..config import get_settings
+from .risk import display_label as _display_label
 
 if TYPE_CHECKING:
     from .risk import MarketHealthReport
@@ -31,7 +32,7 @@ def format_engine_risk_for_prompt(health: "MarketHealthReport") -> str:
     top = health.score_contributions[:10]
     lines = [
         "=== RULE-BASED RISK ENGINE (same session data) ===",
-        f"Engine label: **{health.overall_risk.upper()}** | Score: **{health.score}/100** (capped)",
+        f"Engine label: **{health.overall_risk.upper()}** ({_display_label(health.overall_risk)}) | Score: **{health.score}/100** (capped)",
         f"Raw sum before cap: **{health.score_uncapped}**",
         "",
         "Top contributors to the numeric score:",

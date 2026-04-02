@@ -27,14 +27,20 @@ class RiskProjection:
 
     @property
     def label(self) -> str:
-        return self.direction.upper()
+        return {
+            "worsening": "WORSENING",
+            "easing": "EASING",
+            "stressed_holding": "STRESSED, HOLDING",
+            "stable": "STABLE",
+        }.get(self.direction, self.direction.upper())
 
     @property
     def color_var(self) -> str:
         return {
             "worsening": "var(--red)",
+            "stressed_holding": "var(--orange, var(--yellow))",
             "stable": "var(--yellow)",
-            "improving": "var(--green)",
+            "easing": "var(--green)",
         }.get(self.direction, "var(--text-dim)")
 
 
@@ -51,6 +57,7 @@ def compute_projection(
     score = 0.0  # positive = worsening, negative = improving
     factors: list[str] = []
     data_points = 0
+    current_uncapped = risk_trend.current_uncapped if risk_trend else 0
 
     # --- Risk score trajectory (highest weight when data exists) ---
     if risk_trend and risk_trend.has_any:
@@ -87,38 +94,40 @@ def compute_projection(
                 score -= 2.5
                 factors.append(f"Risk score down {risk_trend.delta_1m:+d} over 1 month — sustained improvement")
 
-    # --- Leading macro indicators ---
+    # --- All macro indicators (not just a hardcoded subset) ---
     if macro:
-        leading_series = ["T10Y2Y", "T10Y3M", "ICSA", "UMCSENT", "UNRATE"]
+        critical_count = 0
         warning_count = 0
-        improving_count = 0
+        bullish_count = 0
         for ind in macro.indicators:
-            if ind.series_id in leading_series:
-                data_points += 1
-                if ind.signal in ("critical", "warning"):
-                    warning_count += 1
-                elif ind.signal == "bullish":
-                    improving_count += 1
-
-        if warning_count >= 3:
-            score += 2.0
-            factors.append(f"{warning_count} leading indicators at warning/critical")
-        elif warning_count >= 2:
-            score += 1.0
-            factors.append(f"{warning_count} leading indicators elevated")
-        if improving_count >= 2:
-            score -= 1.0
-            factors.append(f"{improving_count} leading indicators improving")
-
-        inflation_series = ["CPIAUCSL", "PPIACO", "GASREGW"]
-        inf_warnings = 0
-        for ind in macro.indicators:
-            if ind.series_id in inflation_series and ind.signal in ("warning", "critical"):
-                inf_warnings += 1
-        if inf_warnings >= 2:
-            score += 1.5
-            factors.append(f"Inflation pressure: {inf_warnings} price indicators elevated")
             data_points += 1
+            if ind.signal == "critical":
+                critical_count += 1
+            elif ind.signal == "warning":
+                warning_count += 1
+            elif ind.signal == "bullish":
+                bullish_count += 1
+
+        stressed = critical_count + warning_count
+        if critical_count >= 2:
+            score += 2.5
+            factors.append(f"{critical_count} macro indicators at critical")
+        elif critical_count == 1:
+            score += 1.0
+            factors.append(f"1 macro indicator at critical, {warning_count} at warning")
+        elif warning_count >= 3:
+            score += 1.5
+            factors.append(f"{warning_count} macro indicators at warning")
+        elif warning_count >= 1:
+            score += 0.5
+            factors.append(f"{warning_count} macro indicator(s) at warning")
+
+        if bullish_count >= 3:
+            score -= 1.5
+            factors.append(f"{bullish_count} macro indicators improving")
+        elif bullish_count >= 2:
+            score -= 0.5
+            factors.append(f"{bullish_count} macro indicators improving")
 
     # --- Supply chain cascade momentum ---
     if cascade_active_count > 0:
@@ -133,11 +142,21 @@ def compute_projection(
             score += 0.3
             factors.append("1 supply chain cascade stage active")
 
-    # --- Determine direction ---
+    # --- Absolute-level floor: high scores bias toward worsening ---
+    if current_uncapped >= 200:
+        score += 2.0
+        factors.append(f"Absolute score ({current_uncapped}) in heavy stress territory")
+    elif current_uncapped >= 100:
+        score += 1.0
+        factors.append(f"Absolute score ({current_uncapped}) in compounding stress territory")
+
+    # --- Determine direction (context-aware labels at high scores) ---
     if score > 1.5:
         direction = "worsening"
     elif score < -1.5:
-        direction = "improving"
+        direction = "easing"
+    elif current_uncapped >= 100:
+        direction = "stressed_holding"
     else:
         direction = "stable"
 

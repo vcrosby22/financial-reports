@@ -135,7 +135,7 @@ def _screen_long(
         if has_insider_selling:
             signals_against.append("Insider selling detected")
             risk += 1
-        if market_risk in ("high", "critical"):
+        if market_risk in ("high", "acute_stress"):
             signals_against.append(f"Overall market risk: {market_risk}")
             risk += 1
 

@@ -5,6 +5,7 @@ Usage:
     python -m src scan              # Quick market scan (data + risk check, no AI)
     python -m src analyze           # Full AI-powered analysis with all data layers
     python -m src risk              # Risk assessment only
+    python -m src personal          # Personal defense dashboard (LOCAL ONLY)
     python -m src predictions       # View prediction tracker
 """
 
@@ -19,7 +20,7 @@ from rich.table import Table
 from .analysis.accuracy import check_predictions, display_predictions
 from .analysis.ai_analyst import analyze_market_trends, format_engine_risk_for_prompt
 from .analysis.memory import build_trend_context
-from .analysis.risk import MarketHealthReport, assess_market_health, get_position_guidance
+from .analysis.risk import MarketHealthReport, assess_market_health, display_label, get_position_guidance
 from .config import load_config
 from .data.crypto import fetch_crypto_data
 from .data.database import get_session, init_db
@@ -142,7 +143,8 @@ def display_market_overview(market_data: dict):
 def display_risk_report(health: MarketHealthReport):
     risk_colors = {
         "low": "green", "moderate": "yellow", "elevated": "dark_orange",
-        "high": "red", "critical": "bold red",
+        "high": "red", "acute_stress": "bold red",
+        "compounding_stress": "bold red", "severe_stress": "bold white on red", "heavy_stress": "bold white on red",
     }
     color = risk_colors.get(health.overall_risk, "white")
     conf_colors = {"high": "green", "medium": "yellow", "low": "red"}
@@ -158,7 +160,7 @@ def display_risk_report(health: MarketHealthReport):
         else ""
     )
     console.print(Panel(
-        f"[{color}]Risk Level: {health.overall_risk.upper()}[/{color}]  |  "
+        f"[{color}]Risk Level: {display_label(health.overall_risk)}[/{color}]  |  "
         f"Score: {health.score}/100{uncap_note}  |  "
         f"Data completeness: [{conf_color}]{health.confidence.upper()}[/{conf_color}]  |  "
         f"Critical: {health.critical_count}  |  Warnings: {health.warning_count}  |  "
@@ -176,7 +178,7 @@ def display_risk_report(health: MarketHealthReport):
 
     guidance = get_position_guidance(health.overall_risk)
     console.print(
-        f"[dim]Position guidance at {health.overall_risk.upper()} risk: "
+        f"[dim]Position guidance at {display_label(health.overall_risk)} risk: "
         f"Max new position: {guidance['max_position']} | "
         f"Stop-loss: {guidance['stop_loss']}[/dim]"
     )
@@ -372,7 +374,7 @@ def cmd_analyze():
         Markdown(report["full_report"]),
         title=(
             f"AI analysis — Narrative risk: {report['risk_level'].upper()}  |  "
-            f"Engine: {health.overall_risk.upper()} ({health.score}/100)  |  "
+            f"Engine: {display_label(health.overall_risk)} ({health.score}/100)  |  "
             f"Data completeness: {health.confidence.upper()}"
         ),
         border_style="blue",
@@ -432,6 +434,11 @@ def cmd_predictions():
     display_predictions()
 
 
+def cmd_personal():
+    from .personal.dashboard import run_dashboard
+    run_dashboard()
+
+
 def cmd_report(output: str | None = None, no_open: bool = False):
     generate_report(output_path=output, open_browser=not no_open)
 
@@ -446,6 +453,7 @@ def main():
   analyze       Full AI-powered analysis (all 3 data layers)
   risk          Risk assessment only (indices + ETFs + macro)
   report        Generate static HTML report (opens in browser)
+  personal      Personal defense dashboard (LOCAL ONLY — triggers, 401k math, convergence)
   predictions   View prediction tracker and accuracy
 
   CI / shareable URL (stable filename):
@@ -454,7 +462,7 @@ def main():
   See PORTING.md, PUBLISHING.md, ../public-market-report/README.md
         """,
     )
-    parser.add_argument("command", choices=["init", "scan", "analyze", "risk", "report", "predictions"],
+    parser.add_argument("command", choices=["init", "scan", "analyze", "risk", "report", "personal", "predictions"],
                         help="Command to run")
     parser.add_argument("--output", "-o", help="Output path for report (report command only)")
     parser.add_argument("--no-open", action="store_true", help="Don't open report in browser (report command only)")
@@ -468,6 +476,7 @@ def main():
             "scan": cmd_scan,
             "analyze": cmd_analyze,
             "risk": cmd_risk,
+            "personal": cmd_personal,
             "predictions": cmd_predictions,
         }
         commands[args.command]()

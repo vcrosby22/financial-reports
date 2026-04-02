@@ -20,6 +20,8 @@ from .analysis.opportunities import Opportunity, screen_opportunities
 from .analysis.risk import (
     MarketHealthReport,
     assess_market_health,
+    direction_word,
+    display_label,
     get_position_guidance,
 )
 from .config import load_config
@@ -309,8 +311,8 @@ def _build_html(
 
     risk_color = {
         "low": "#22c55e", "moderate": "#eab308", "elevated": "#f97316",
-        "high": "#ef4444", "critical": "#dc2626",
-        "severe": "#991b1b", "extreme": "#7f1d1d", "catastrophic": "#b91c1c",
+        "high": "#ef4444", "acute_stress": "#dc2626",
+        "compounding_stress": "#991b1b", "severe_stress": "#7f1d1d", "heavy_stress": "#b91c1c",
     }.get(health.overall_risk, "#6b7280")
 
     conf_color = {"high": "#22c55e", "medium": "#eab308", "low": "#ef4444"}.get(health.confidence, "#6b7280")
@@ -338,7 +340,7 @@ def _build_html(
         _d = risk_trend.delta_1d
         _ro_delta = f" ({_d:+d} vs prior day)"
     sections.append(_collapsible(
-        f'Risk Overview — Score {_ro_score}{_ro_delta} · <span style="color:{risk_color}">{health.overall_risk.upper()}</span>',
+        f'Risk Overview — Score {_ro_score}{_ro_delta} · <span style="color:{risk_color}">{display_label(health.overall_risk)}</span>',
         risk_inner,
         open_default=False,
         section_id="risk",
@@ -926,7 +928,8 @@ def _section_kpi_cards(
         delta_color = "var(--red)" if d > 0 else "var(--green)" if d < 0 else "var(--text-dim)"
         delta_str = f' <span style="font-size:clamp(0.7rem, 2.5vw, 1rem);color:{delta_color};">{arrow}{d:+d}</span>'
 
-    level_subtitle = health.overall_risk.upper()
+    _dir = direction_word(risk_trend.delta_1d if risk_trend else None)
+    level_subtitle = display_label(health.overall_risk) + (f" &middot; {_dir}" if _dir else "")
     cards = [_kpi("Risk Score", f"{score_display}{delta_str}", risk_color, level_subtitle)]
 
     if sp500 and sp500.get("price"):
@@ -1002,7 +1005,7 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     return f"""
 <div class="risk-banner">
   <div>
-    <div class="level" style="color: {risk_color}">{health.overall_risk.upper()}</div>
+    <div class="level" style="color: {risk_color}">{display_label(health.overall_risk)}</div>
     <div style="color: var(--text-dim); font-size: 0.8rem;">Risk Level</div>
   </div>
   <div>
@@ -1134,7 +1137,7 @@ def _section_risk_score_reader_context(health: MarketHealthReport, risk_trend: R
     """Plain-language explanation: today\'s score in context, methodology, named level, history."""
     uncapped = _health_uncapped_score(health)
     capped = health.score
-    level = health.overall_risk.upper()
+    level = display_label(health.overall_risk)
 
     movement_lines: list[str] = []
     if risk_trend:
@@ -1188,38 +1191,38 @@ History accumulates automatically across builds so you can track direction over 
 
 
 def _section_risk_legend(health: MarketHealthReport) -> str:
-    active_level = health.overall_risk
+    active_slug = health.overall_risk
 
     levels = [
-        ("CATASTROPHIC", "raw sum 200+", "#b91c1c",
-         "The <strong>uncapped</strong> point total reached 200 or more — many rule-based signals fired together "
-         "(technical + macro + fundamentals). This label measures <strong>stacked stress in this model</strong>; "
+        ("heavy_stress", "HEAVY STRESS", "raw sum 200+", "#b91c1c",
+         "Deep signal convergence &mdash; many rules firing across all layers "
+         "(technical + macro + fundamentals). This measures <strong>stacked stress in this model</strong>; "
          "it is <strong>not</strong> a prediction of collapse and <strong>not</strong> financial advice."),
-        ("EXTREME", "150–199", "#7f1d1d",
-         "Broad systemic failure signals across financial, commodity, and macro dimensions. "
+        ("severe_stress", "SEVERE STRESS", "150–199", "#7f1d1d",
+         "Broad stress across financial, commodity, and macro dimensions. "
          "Maximum defensive posture: cash, short-duration treasuries, zero equity exposure."),
-        ("SEVERE", "100–149", "#991b1b",
-         "Multiple compounding crises active. The score exceeds 100 because more risk signals "
-         "are firing than the baseline scale anticipated. Beyond critical — conditions are still deteriorating."),
-        ("CRITICAL", "80–99", "#dc2626",
-         "Multiple severe risk signals firing simultaneously. Defensive posture — "
+        ("compounding_stress", "COMPOUNDING STRESS", "100–149", "#991b1b",
+         "More signals firing than the baseline anticipated &mdash; conditions are layering. "
+         "The score exceeds 100 because risk signals compound beyond the original scale."),
+        ("acute_stress", "ACUTE STRESS", "80–99", "#dc2626",
+         "Multiple severe risk signals stacking simultaneously. Defensive posture &mdash; "
          "avoid new positions, prioritize capital preservation, increase cash allocation."),
-        ("HIGH", "60–79", "#ef4444",
+        ("high", "HIGH", "60–79", "#ef4444",
          "Significant risk signals across multiple categories. Reduce exposure to risk assets, "
          "tighten stop-losses, and size any new positions very small (0.5–1% max)."),
-        ("ELEVATED", "40–59", "#f97316",
+        ("elevated", "ELEVATED", "40–59", "#f97316",
          "Several warning signals are active. Proceed with caution, favor quality over speculation, "
          "and keep position sizes moderate (1–3%)."),
-        ("MODERATE", "20–39", "#eab308",
+        ("moderate", "MODERATE", "20–39", "#eab308",
          "A few risk signals are present but the market is broadly functional. "
          "Normal investing with standard position sizing (3–5%)."),
-        ("LOW", "0–19", "#22c55e",
+        ("low", "LOW", "0–19", "#22c55e",
          "Minimal risk signals detected. Market conditions are calm. Standard investing with full position sizing."),
     ]
 
     level_rows = []
-    for name, score_range, color, description in levels:
-        is_active = name.lower() == active_level
+    for slug, name, score_range, color, description in levels:
+        is_active = slug == active_slug
         highlight = "border: 1px solid " + color + "; background: #1e293b;" if is_active else ""
         arrow = " ◀ CURRENT" if is_active else ""
         level_rows.append(
@@ -1930,8 +1933,8 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
 
     market_risk_color = {
         "low": "var(--green)", "moderate": "var(--yellow)", "elevated": "var(--orange)",
-        "high": "var(--red)", "critical": "var(--red)",
-        "severe": "var(--red)", "extreme": "var(--red)", "catastrophic": "var(--red)",
+        "high": "var(--red)", "acute_stress": "var(--red)",
+        "compounding_stress": "var(--red)", "severe_stress": "var(--red)", "heavy_stress": "var(--red)",
     }.get(health.overall_risk, "var(--text)")
 
     long_count = len(longs)
@@ -1945,7 +1948,7 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
 Higher expected return generally comes with higher risk — there is no such thing as "guaranteed low risk, high yield."
 Every opportunity lists what could go wrong. Position sizing reflects the risk level.
 This is analysis for educational purposes, not financial advice.
-Market risk is currently <strong style="color:{market_risk_color};">{health.overall_risk.upper()}</strong>
+Market risk is currently <strong style="color:{market_risk_color};">{display_label(health.overall_risk)}</strong>
  — factor this into all decisions.
 </div>
 </div>
