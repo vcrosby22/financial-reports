@@ -4,16 +4,16 @@
   "by_date": {
     "2026-04-02": {
       "snapshot_date": "2026-04-02",
-      "ts_utc": "2026-04-02T17:58:40.654006+00:00",
+      "ts_utc": "2026-04-02T19:08:58.627054+00:00",
       "score": 100,
-      "score_uncapped": 350,
-      "overall_risk": "catastrophic",
+      "score_uncapped": 340,
+      "overall_risk": "heavy_stress",
       "critical_count": 6,
-      "warning_count": 13,
+      "warning_count": 12,
       "leading_signal_count": 11,
       "source": "github_actions",
-      "github_sha": "ef090a8fc3f05480733932e68a9ea7aab1730b34",
-      "github_run_id": "23914434257"
+      "github_sha": "1c4b45789e59c3fabfcdacb78f6478b629b3fc6a",
+      "github_run_id": "23917321147"
     }
   }
 }
