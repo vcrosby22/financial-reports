@@ -3,6 +3,10 @@
 File: ``data/risk_score_history.jsonl`` under the project root (``financial-agent/``).
 In CI (``financial-reports`` repo), this file is committed back to ``main`` so
 history accumulates across runs and the report can show trend indicators.
+
+**Daily canonical snapshots** (one row per Eastern calendar day) live in
+``data/risk_score_daily.json`` — see ``risk_score_daily.py``. :func:`compute_trend`
+prefers that file for 1d / 1w / 1m baselines and falls back to this JSONL.
 """
 
 from __future__ import annotations
@@ -12,9 +16,12 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from ..analysis.risk import MarketHealthReport
 from ..config import PROJECT_ROOT
+
+from .risk_score_daily import get_daily_snapshot_for_date
 
 LOG_REL_PATH = Path("data") / "risk_score_history.jsonl"
 
@@ -85,28 +92,51 @@ def _find_nearest_record(
     return best
 
 
+def _apply_baseline_from_record(trend: RiskTrend, rec: dict, horizon: str) -> None:
+    uncapped = rec.get("score_uncapped", rec.get("score"))
+    level = rec.get("overall_risk")
+    if horizon == "1d":
+        trend.prev_1d_uncapped = uncapped
+        trend.prev_1d_level = level
+    elif horizon == "1w":
+        trend.prev_1w_uncapped = uncapped
+        trend.prev_1w_level = level
+    elif horizon == "1m":
+        trend.prev_1m_uncapped = uncapped
+        trend.prev_1m_level = level
+
+
 def compute_trend(health: MarketHealthReport) -> RiskTrend:
-    """Build a RiskTrend from the current score and historical JSONL data."""
+    """Build a RiskTrend from daily snapshots when possible, else per-run JSONL."""
     now_utc = datetime.now(timezone.utc)
+    today_et = now_utc.astimezone(ZoneInfo("America/New_York")).date()
     records = read_risk_score_history()
     trend = RiskTrend(current_uncapped=getattr(health, "score_uncapped", health.score))
 
-    if not records:
-        return trend
+    d_daily = get_daily_snapshot_for_date(today_et - timedelta(days=1))
+    w_daily = get_daily_snapshot_for_date(today_et - timedelta(days=7))
+    m_daily = get_daily_snapshot_for_date(today_et - timedelta(days=30))
 
-    day_ago = _find_nearest_record(records, now_utc - timedelta(days=1))
-    week_ago = _find_nearest_record(records, now_utc - timedelta(days=7))
-    month_ago = _find_nearest_record(records, now_utc - timedelta(days=30))
+    if d_daily:
+        _apply_baseline_from_record(trend, d_daily, "1d")
+    elif records:
+        day_ago = _find_nearest_record(records, now_utc - timedelta(days=1))
+        if day_ago:
+            _apply_baseline_from_record(trend, day_ago, "1d")
 
-    if day_ago:
-        trend.prev_1d_uncapped = day_ago.get("score_uncapped", day_ago.get("score"))
-        trend.prev_1d_level = day_ago.get("overall_risk")
-    if week_ago:
-        trend.prev_1w_uncapped = week_ago.get("score_uncapped", week_ago.get("score"))
-        trend.prev_1w_level = week_ago.get("overall_risk")
-    if month_ago:
-        trend.prev_1m_uncapped = month_ago.get("score_uncapped", month_ago.get("score"))
-        trend.prev_1m_level = month_ago.get("overall_risk")
+    if w_daily:
+        _apply_baseline_from_record(trend, w_daily, "1w")
+    elif records:
+        week_ago = _find_nearest_record(records, now_utc - timedelta(days=7))
+        if week_ago:
+            _apply_baseline_from_record(trend, week_ago, "1w")
+
+    if m_daily:
+        _apply_baseline_from_record(trend, m_daily, "1m")
+    elif records:
+        month_ago = _find_nearest_record(records, now_utc - timedelta(days=30))
+        if month_ago:
+            _apply_baseline_from_record(trend, month_ago, "1m")
 
     return trend
 

@@ -25,6 +25,7 @@ from .analysis.risk import (
 from .config import load_config
 from .data.database import get_session, init_db
 from .data.models import MarketSnapshot
+from .data.risk_score_daily import upsert_daily_risk_snapshot
 from .data.risk_score_log import RiskTrend, append_risk_score_log, compute_trend
 from .data.crypto import fetch_crypto_data
 from .data.forex import fetch_forex_data
@@ -261,6 +262,9 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     log_path = append_risk_score_log(health)
     if log_path:
         console.print(f"[dim]Risk score log: {log_path}[/dim]")
+    daily_path = upsert_daily_risk_snapshot(health)
+    if daily_path:
+        console.print(f"[dim]Risk score daily snapshot: {daily_path}[/dim]")
     console.print(f"\n[bold green]Report saved: {filepath}[/bold green]")
 
     if open_browser:
@@ -320,15 +324,21 @@ def _build_html(
     oil_kpi = next((i for i in commodities if i.get("ticker") == "BZ=F"), None) if commodities else None
 
     sections = []
-    sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi))
+    sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi, risk_trend))
     risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance)
+    risk_inner += _snapshot_narrative(health, risk_trend)
     if risk_trend and risk_trend.has_any:
         risk_inner += _section_risk_trend(risk_trend)
     if projection and hasattr(projection, 'direction'):
         risk_inner += _section_projection(projection)
-    risk_inner += _section_risk_score_reader_context(health)
+    risk_inner += _section_risk_score_reader_context(health, risk_trend)
+    _ro_score = _health_uncapped_score(health)
+    _ro_delta = ""
+    if risk_trend and risk_trend.delta_1d is not None:
+        _d = risk_trend.delta_1d
+        _ro_delta = f" ({_d:+d} vs prior day)"
     sections.append(_collapsible(
-        f'Risk Overview — <span style="color:{risk_color}">{health.overall_risk.upper()}</span> (Score: {_health_uncapped_score(health)})',
+        f'Risk Overview — Score {_ro_score}{_ro_delta} · <span style="color:{risk_color}">{health.overall_risk.upper()}</span>',
         risk_inner,
         open_default=False,
         section_id="risk",
@@ -892,6 +902,7 @@ def _section_kpi_cards(
     sp500: dict | None,
     vix: dict | None,
     oil: dict | None,
+    risk_trend: RiskTrend | None = None,
 ) -> str:
     """Row of 4 KPI summary cards — the executive snapshot before any detail."""
     uncapped = _health_uncapped_score(health)
@@ -908,7 +919,15 @@ def _section_kpi_cards(
             f'</div>'
         )
 
-    cards = [_kpi("Risk Level", health.overall_risk.upper(), risk_color, f"Score: {score_display}")]
+    delta_str = ""
+    if risk_trend and risk_trend.delta_1d is not None:
+        d = risk_trend.delta_1d
+        arrow = "&#9650;" if d > 0 else "&#9660;" if d < 0 else "&#9644;"
+        delta_color = "var(--red)" if d > 0 else "var(--green)" if d < 0 else "var(--text-dim)"
+        delta_str = f' <span style="font-size:clamp(0.7rem, 2.5vw, 1rem);color:{delta_color};">{arrow}{d:+d}</span>'
+
+    level_subtitle = health.overall_risk.upper()
+    cards = [_kpi("Risk Score", f"{score_display}{delta_str}", risk_color, level_subtitle)]
 
     if sp500 and sp500.get("price"):
         chg = sp500.get("change_1d", 0) or 0
@@ -1012,6 +1031,34 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
 </div>"""
 
 
+def _snapshot_narrative(health: MarketHealthReport, trend: RiskTrend | None) -> str:
+    """One plain-English sentence summarising today's score, movement, and a link to history."""
+    uncapped = _health_uncapped_score(health)
+    parts: list[str] = [f"Today&rsquo;s risk score is <strong>{uncapped}</strong> (uncapped raw total)."]
+
+    if trend:
+        movements: list[str] = []
+        if trend.delta_1d is not None:
+            direction = "up" if trend.delta_1d > 0 else "down" if trend.delta_1d < 0 else "flat"
+            movements.append(f"<strong>{direction} {abs(trend.delta_1d)} points</strong> from yesterday")
+        if trend.delta_1w is not None:
+            direction = "up" if trend.delta_1w > 0 else "down" if trend.delta_1w < 0 else "flat"
+            movements.append(f"{direction} {abs(trend.delta_1w)} over the past week")
+        if movements:
+            parts.append("That&rsquo;s " + ", and ".join(movements) + ".")
+
+    parts.append(
+        'For how this compares to past economic crises, see '
+        '<a href="#historical" style="color:var(--cyan);">Historical Parallels</a> below.'
+    )
+    return (
+        '<p style="font-size:0.85rem;color:var(--text-dim);line-height:1.55;'
+        'margin:0.65rem 0 0.3rem;">'
+        + " ".join(parts)
+        + "</p>"
+    )
+
+
 def _section_risk_trend(trend: RiskTrend) -> str:
     """Render risk score trend indicators (daily / weekly / monthly deltas)."""
 
@@ -1083,32 +1130,57 @@ def _section_projection(proj: object) -> str:
     )
 
 
-def _section_risk_score_reader_context(health: MarketHealthReport) -> str:
-    """Plain-language explanation of uncapped score, labels, and what this site stores."""
+def _section_risk_score_reader_context(health: MarketHealthReport, risk_trend: RiskTrend | None = None) -> str:
+    """Plain-language explanation: today\'s score in context, methodology, named level, history."""
     uncapped = _health_uncapped_score(health)
     capped = health.score
+    level = health.overall_risk.upper()
+
+    movement_lines: list[str] = []
+    if risk_trend:
+        if risk_trend.delta_1d is not None:
+            prev = uncapped - risk_trend.delta_1d
+            direction = "up" if risk_trend.delta_1d > 0 else "down" if risk_trend.delta_1d < 0 else "unchanged"
+            movement_lines.append(
+                f"Yesterday&rsquo;s snapshot was <strong>{prev}</strong> "
+                f"({direction} <strong>{abs(risk_trend.delta_1d)}</strong> points)."
+            )
+        if risk_trend.delta_1w is not None:
+            prev_w = uncapped - risk_trend.delta_1w
+            movement_lines.append(f"One week ago it was <strong>{prev_w}</strong>.")
+        if risk_trend.delta_1m is not None:
+            prev_m = uncapped - risk_trend.delta_1m
+            movement_lines.append(f"One month ago it was <strong>{prev_m}</strong>.")
+    movement_html = " ".join(movement_lines) if movement_lines else "No prior snapshot is available yet for comparison."
+
     return f"""
 <div id="risk-explainer" class="card" style="border-left:3px solid var(--cyan);margin-bottom:1.25rem;">
-<h3 style="margin:0 0 0.5rem 0;font-size:0.95rem;color:var(--text);">How this risk score works (read this first)</h3>
+<h3 style="margin:0 0 0.5rem 0;font-size:0.95rem;color:var(--text);">Understanding this risk score</h3>
 <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.6;">
 <p style="margin:0 0 0.65rem 0;">
-<strong style="color:var(--text);">1. How we calculate it</strong> —
-Each detected signal adds <strong>points</strong> (amount varies by rule and severity; <strong>leading</strong> macro/fundamental signals are weighted <strong>1.5×</strong> vs <strong>lagging</strong> technical signals).
-We add them across VIX, drawdowns, death crosses, macro (FRED), fundamentals, and breadth.
-Your <strong>raw total</strong> is <strong>{uncapped}</strong>; we also show a <strong>0–100 capped</strong> score ({capped}) for comparison.
-The <strong>named level</strong> (Moderate through Catastrophic) uses the <strong>raw</strong> total so conditions can still look worse once many signals stack, even though the capped number stops at 100.
+<strong style="color:var(--text);">1. Where the score is now</strong> &mdash;
+Today&rsquo;s raw risk score is <strong>{uncapped}</strong>.
+{movement_html}
+The <strong>score number and its direction</strong> are more informative than the named level when conditions stay at the top of the scale.
 </p>
 <p style="margin:0 0 0.65rem 0;">
-<strong style="color:var(--text);">2. What “Catastrophic” means here</strong> —
-It only means the raw sum is <strong>≥ 200</strong> on our rule set.
-That usually means <strong>many warnings fired at once</strong>, not that a specific bad outcome will happen.
+<strong style="color:var(--text);">2. How we calculate it</strong> &mdash;
+Each detected signal adds <strong>points</strong> (leading macro/fundamental signals are weighted <strong>1.5&times;</strong> vs lagging technical signals).
+Signals span VIX, drawdowns, death crosses, macro (FRED), fundamentals, and breadth.
+The <strong>raw total</strong> is <strong>{uncapped}</strong>; we also show a <strong>0&ndash;100 capped</strong> score ({capped}) for side-by-side comparison.
+</p>
+<p style="margin:0 0 0.65rem 0;">
+<strong style="color:var(--text);">3. What the named level means</strong> &mdash;
+The level <strong style="color:var(--text);">{level}</strong> maps the raw score to a bucket on this model&rsquo;s scale
+(Low&nbsp;&rarr;&nbsp;Moderate&nbsp;&rarr;&nbsp;Elevated&nbsp;&rarr;&nbsp;High&nbsp;&rarr;&nbsp;Critical&nbsp;&rarr;&nbsp;Severe&nbsp;&rarr;&nbsp;Extreme&nbsp;&rarr;&nbsp;Catastrophic).
+It tells you <strong>how many signals are stacking</strong>, not what will happen next.
 It is a <strong>model severity label</strong>, not a forecast, not a bank rating, and not personalized advice.
 </p>
 <p style="margin:0;">
-<strong style="color:var(--text);">3. Snapshots and history</strong> —
-Each report run saves <strong>one set of numbers for “now.”</strong>
-If you run the tool locally, a SQLite database can accumulate past tick snapshots over time.
-<strong>This public page</strong> is rebuilt on a <strong>schedule</strong> (weekdays, plus when the repo updates); it does <strong>not</strong> keep a growing score history on the server unless you add that separately.
+<strong style="color:var(--text);">4. Snapshots and history</strong> &mdash;
+Each weekday build saves a daily snapshot.
+The <strong>trend chips</strong> above show how today&rsquo;s score compares to prior snapshots (1&nbsp;day, 1&nbsp;week, 1&nbsp;month).
+History accumulates automatically across builds so you can track direction over time.
 </p>
 </div>
 </div>

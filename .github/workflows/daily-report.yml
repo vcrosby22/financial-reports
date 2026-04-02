@@ -54,7 +54,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           changed=false
-          for f in data/risk_score_history.jsonl data/supply_chain_history.jsonl; do
+          for f in data/risk_score_history.jsonl data/risk_score_daily.json data/supply_chain_history.jsonl; do
             if [ -f "$f" ]; then
               git add "$f"
               changed=true
