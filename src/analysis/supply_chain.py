@@ -62,6 +62,16 @@ def _macro_signal(macro: MacroSnapshot | None, series_id: str) -> str | None:
     return None
 
 
+def _macro_yoy(macro: MacroSnapshot | None, series_id: str) -> float | None:
+    """Get the year-over-year change for a FRED series."""
+    if macro is None:
+        return None
+    for ind in macro.indicators:
+        if ind.series_id == series_id:
+            return getattr(ind, "yoy_change", None)
+    return None
+
+
 def evaluate_cascade(
     proxy_data: dict[str, dict],
     macro: MacroSnapshot | None,
@@ -199,6 +209,8 @@ def evaluate_cascade(
     dba_1m = _pct(dba)
     cpi_signal = _macro_signal(macro, "CPIAUCSL")
     ppi_signal = _macro_signal(macro, "PPIACO")
+    food_at_home_signal = _macro_signal(macro, "CUSR0000SAF11")
+    food_at_home_yoy = _macro_yoy(macro, "CUSR0000SAF11")
 
     food_evidence: list[str] = []
     food_score = 0.0
@@ -211,6 +223,12 @@ def evaluate_cascade(
     if dba_1m is not None and dba_1m > 5:
         food_score += 0.2
         food_evidence.append(f"DBA (agriculture) +{dba_1m:.1f}% (1m)")
+    if food_at_home_signal == "critical":
+        food_score += 0.35
+        food_evidence.append(f"CPI Food at Home: critical (YoY {food_at_home_yoy:+.1f}%) — grocery inflation accelerating" if food_at_home_yoy else "CPI Food at Home: critical — grocery inflation accelerating")
+    elif food_at_home_signal in ("warning", "bearish"):
+        food_score += 0.25
+        food_evidence.append(f"CPI Food at Home: {food_at_home_signal} (YoY {food_at_home_yoy:+.1f}%) — grocery prices rising above target" if food_at_home_yoy else f"CPI Food at Home: {food_at_home_signal} — grocery prices rising above target")
     if ppi_signal in ("warning", "critical"):
         food_score += 0.2
         food_evidence.append(f"PPI: {ppi_signal} — producer input costs rising")
