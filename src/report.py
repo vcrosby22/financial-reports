@@ -323,10 +323,12 @@ def _build_html(
     commodities = market_data.get("commodities", [])
     vix_data = next((i for i in indices if i.get("ticker") == "^VIX"), None)
     sp500_kpi = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
+    dow_kpi = next((i for i in indices if i.get("ticker") == "^DJI"), None)
+    nasdaq_kpi = next((i for i in indices if i.get("ticker") == "^IXIC"), None)
     oil_kpi = next((i for i in commodities if i.get("ticker") == "BZ=F"), None) if commodities else None
 
     sections = []
-    sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, vix_data, oil_kpi, risk_trend))
+    sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend))
     risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance)
     risk_inner += _snapshot_narrative(health, risk_trend)
     if risk_trend and risk_trend.has_any:
@@ -595,6 +597,9 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
   margin-bottom: 1.5rem;
 }}
+.kpi-row.kpi-6 {{
+  grid-template-columns: repeat(2, 1fr);
+}}
 .kpi-row > div {{
   min-width: 0;
 }}
@@ -676,7 +681,8 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .col-m-hide {{ display: table-cell !important; }}
   .table-scroll.wide-min > table {{ min-width: 30rem; }}
   .opp-signal-grid {{ grid-template-columns: 1fr 1fr; }}
-  .kpi-row {{ grid-template-columns: repeat(4, 1fr); gap: 1rem; }}
+  .kpi-row {{ grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
+  .kpi-row.kpi-6 {{ grid-template-columns: repeat(3, 1fr); }}
   .nav-bar {{
     flex-wrap: wrap; overflow-x: visible; justify-content: center;
     padding: 0.5rem 0; gap: 0.25rem 0.5rem;
@@ -902,11 +908,13 @@ def _section_kpi_cards(
     health: MarketHealthReport,
     risk_color: str,
     sp500: dict | None,
+    dow: dict | None,
+    nasdaq: dict | None,
     vix: dict | None,
     oil: dict | None,
     risk_trend: RiskTrend | None = None,
 ) -> str:
-    """Row of 4 KPI summary cards — the executive snapshot before any detail."""
+    """Grid of KPI summary cards — the executive snapshot before any detail."""
     uncapped = _health_uncapped_score(health)
     score_display = str(uncapped) if uncapped > 100 else str(health.score)
 
@@ -921,6 +929,14 @@ def _section_kpi_cards(
             f'</div>'
         )
 
+    def _index_card(label: str, data: dict | None) -> str | None:
+        if not data or not data.get("price"):
+            return None
+        chg = data.get("change_1d", 0) or 0
+        arrow = "&#9650;" if chg >= 0 else "&#9660;"
+        chg_color = "var(--green)" if chg >= 0 else "var(--red)"
+        return _kpi(label, f"{data['price']:,.0f}", chg_color, f"{arrow} {chg:+.2f}%")
+
     delta_str = ""
     if risk_trend and risk_trend.delta_1d is not None:
         d = risk_trend.delta_1d
@@ -932,16 +948,10 @@ def _section_kpi_cards(
     level_subtitle = display_label(health.overall_risk) + (f" &middot; {_dir}" if _dir else "")
     cards = [_kpi("Risk Score", f"{score_display}{delta_str}", risk_color, level_subtitle)]
 
-    if sp500 and sp500.get("price"):
-        chg = sp500.get("change_1d", 0) or 0
-        arrow = "&#9650;" if chg >= 0 else "&#9660;"
-        chg_color = "var(--green)" if chg >= 0 else "var(--red)"
-        cards.append(_kpi(
-            "S&amp;P 500",
-            f"{sp500['price']:,.0f}",
-            chg_color,
-            f"{arrow} {chg:+.2f}%",
-        ))
+    for label, data in [("S&amp;P 500", sp500), ("Dow Jones", dow), ("NASDAQ", nasdaq)]:
+        card = _index_card(label, data)
+        if card:
+            cards.append(card)
 
     if vix and vix.get("price"):
         vix_val = vix["price"]
@@ -952,8 +962,9 @@ def _section_kpi_cards(
         oil_color = "#22c55e" if oil["price"] < 80 else "#eab308" if oil["price"] < 100 else "#f97316" if oil["price"] < 130 else "#ef4444"
         cards.append(_kpi("Brent Crude", f"${oil['price']:.2f}", oil_color, "per barrel"))
 
+    kpi_class = "kpi-row kpi-6" if len(cards) >= 5 else "kpi-row"
     return (
-        '<div class="kpi-row">'
+        f'<div class="{kpi_class}">'
         + "".join(cards)
         + '</div>'
     )
