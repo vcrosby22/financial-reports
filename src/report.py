@@ -482,6 +482,7 @@ tr:hover {{ background: var(--surface2); }}
 }}
 .tag-critical {{ background: #dc2626; color: #ffffff; border: 1px solid #f87171; box-shadow: 0 0 0 1px rgba(220,38,38,0.35); }}
 .tag-warning {{ background: #d97706; color: #fffbeb; border: 1px solid #fbbf24; }}
+.tag-elevated {{ background: #b45309; color: #fef3c7; border: 1px solid #d97706; }}
 .tag-info {{ background: #059669; color: #ecfdf5; border: 1px solid #34d399; }}
 .tag-leading {{ background: #064e3b; color: #6ee7b7; }}
 .tag-lagging {{ background: var(--surface2); color: var(--text-dim); }}
@@ -808,6 +809,7 @@ def _health_score_contributions(health: MarketHealthReport) -> list:
 _SEVERITY_TITLES = {
     "critical": "Highest severity — strongest risk signal",
     "warning": "Elevated severity — watch closely",
+    "elevated": "Above-normal — bearish macro signal worth monitoring",
     "info": "Lower severity — milder or contextual signal",
 }
 
@@ -815,9 +817,10 @@ _SEVERITY_TITLES = {
 def _severity_tag_html(severity: str, display: str | None = None) -> str:
     """Severity badge: color encodes level (red / amber / green); optional tooltip."""
     sev = (severity or "").lower().strip()
-    sev_class = {"critical": "tag-critical", "warning": "tag-warning", "info": "tag-info"}.get(
-        sev, "tag-unknown"
-    )
+    sev_class = {
+        "critical": "tag-critical", "warning": "tag-warning",
+        "elevated": "tag-elevated", "info": "tag-info",
+    }.get(sev, "tag-unknown")
     label = escape(display if display is not None else (severity or "—"))
     title = _SEVERITY_TITLES.get(sev, "")
     title_attr = f' title="{escape(title, quote=True)}"' if title else ""
@@ -830,7 +833,9 @@ def _severity_legend_html() -> str:
 <span style="font-weight:600;color:var(--text);">Severity key —</span>
 <span class="tag tag-critical">critical</span><span>highest</span>
 <span aria-hidden="true" style="opacity:0.45;">·</span>
-<span class="tag tag-warning">warning</span><span>elevated</span>
+<span class="tag tag-warning">warning</span><span>high</span>
+<span aria-hidden="true" style="opacity:0.45;">·</span>
+<span class="tag tag-elevated">elevated</span><span>above-normal</span>
 <span aria-hidden="true" style="opacity:0.45;">·</span>
 <span class="tag tag-info">info</span><span>lower</span>
 </div>"""
@@ -1320,6 +1325,9 @@ Every detected risk signal adds points based on its severity:<br>
 <tr><td><span style="color:var(--yellow);font-weight:600;">Warning</span></td>
 <td style="text-align:right;padding-right:1.5rem;">+10 pts</td>
 <td style="text-align:right;font-weight:600;">+15 pts</td></tr>
+<tr><td><span style="color:#d97706;font-weight:600;">Elevated</span></td>
+<td style="text-align:right;padding-right:1.5rem;">+5 pts</td>
+<td style="text-align:right;font-weight:600;">+7 pts</td></tr>
 <tr><td><span style="color:var(--text-dim);">Info</span></td>
 <td style="text-align:right;padding-right:1.5rem;">+2 pts</td>
 <td style="text-align:right;">+2 pts</td></tr>

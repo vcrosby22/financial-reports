@@ -203,6 +203,15 @@ def assess_market_health(
     if fundamentals_data:
         _check_fundamental_signals(fundamentals_data, report)
 
+    # Layer 4: Market structure (research-validated — CNN F&G, OFR FSI, NFCI)
+    _check_breadth_percentage(market_data, report)
+    _check_52week_extremes(market_data, report)
+    _check_drawdown_from_peak(market_data, report)
+    _check_safe_haven_rotation(market_data, report)
+
+    # Meta-signal: convergence amplifier (must run after all other signals)
+    _check_signal_convergence(report)
+
     uncapped, capped, contributions = compute_score_from_signals(report.signals)
     report.score_uncapped = uncapped
     report.score = capped
@@ -398,7 +407,7 @@ def _check_macro_signals(macro_data, report: MarketHealthReport):
             ))
         elif indicator.signal == "bearish":
             report.signals.append(RiskSignal(
-                name=f"Macro: {indicator.name}", severity="info", category="macro",
+                name=f"Macro: {indicator.name}", severity="elevated", category="macro",
                 message=indicator.description,
                 value=indicator.value, signal_type="leading",
             ))
@@ -423,8 +432,11 @@ def _check_macro_signals(macro_data, report: MarketHealthReport):
 # --- Layer 3: Fundamental Checks (Leading) ---
 
 # Breadth signals use `value` = count; points sublinear in count (see signal_points).
-_MAX_EPS_DISTRESS_BREADTH_POINTS = 30
-_MAX_DEATH_CROSS_BREADTH_POINTS = 25
+# Caps raised after research-validated recalibration (April 2026) — professional
+# breadth models (Schwab, CNN Fear & Greed) give structural breadth much more
+# weight relative to per-ticker volatility events.
+_MAX_EPS_DISTRESS_BREADTH_POINTS = 40
+_MAX_DEATH_CROSS_BREADTH_POINTS = 40
 
 
 def _check_fundamental_signals(fundamentals_data: dict, report: MarketHealthReport):
@@ -494,6 +506,281 @@ def _check_fundamental_signals(fundamentals_data: dict, report: MarketHealthRepo
         ))
 
 
+# --- Layer 4: Market Structure Checks (Research-Validated April 2026) ---
+# Based on CNN Fear & Greed Index, OFR Financial Stress Index, Chicago Fed NFCI,
+# and academic systemic risk literature.
+
+
+def _check_breadth_percentage(market_data: dict, report: MarketHealthReport):
+    """Percentage of watched assets trading above 200-day MA.
+
+    This is the institutional standard for market breadth (Schwab, StockCharts,
+    CNN Fear & Greed "Stock Price Breadth"). Professional thresholds:
+      >70%  = healthy bull
+      50-70 = neutral
+      30-50 = warning (market weakness)
+      <30   = critical (very weak)
+    """
+    watchable = (
+        market_data.get("stocks", [])
+        + market_data.get("etfs", [])
+        + market_data.get("indices", [])
+    )
+    total = 0
+    above = 0
+    for asset in watchable:
+        ma200 = asset.get("two_hundred_day_ma")
+        price = asset.get("price")
+        if ma200 is None or price is None:
+            continue
+        total += 1
+        if price > ma200:
+            above += 1
+
+    if total < 5:
+        return
+
+    pct = above / total * 100
+    if pct < 30:
+        report.signals.append(RiskSignal(
+            name="Breadth: % above 200-day MA",
+            severity="critical",
+            category="technical",
+            message=(
+                f"Only {pct:.0f}% of {total} watched assets trade above their "
+                f"200-day MA — broad market deterioration."
+            ),
+            value=pct,
+        ))
+    elif pct < 50:
+        report.signals.append(RiskSignal(
+            name="Breadth: % above 200-day MA",
+            severity="warning",
+            category="technical",
+            message=(
+                f"{pct:.0f}% of {total} watched assets trade above their "
+                f"200-day MA — weakening breadth."
+            ),
+            value=pct,
+        ))
+
+
+def _check_52week_extremes(market_data: dict, report: MarketHealthReport):
+    """CNN Fear & Greed "Stock Price Strength" — ratio of stocks near
+    52-week lows vs highs.  A stock is "near low" if it sits in the bottom
+    20% of its 52-week range, "near high" if in the top 20%.
+    """
+    watchable = market_data.get("stocks", []) + market_data.get("etfs", [])
+    near_low = 0
+    near_high = 0
+    counted = 0
+
+    for asset in watchable:
+        price = asset.get("price")
+        hi = asset.get("fifty_two_week_high")
+        lo = asset.get("fifty_two_week_low")
+        if price is None or hi is None or lo is None or hi == lo:
+            continue
+        counted += 1
+        position = (price - lo) / (hi - lo)
+        if position <= 0.20:
+            near_low += 1
+        elif position >= 0.80:
+            near_high += 1
+
+    if counted < 5:
+        return
+
+    pct_near_low = near_low / counted * 100
+    if pct_near_low >= 70:
+        report.signals.append(RiskSignal(
+            name="52-week lows breadth",
+            severity="critical",
+            category="technical",
+            message=(
+                f"{near_low}/{counted} watched assets ({pct_near_low:.0f}%) sit "
+                f"near 52-week lows vs {near_high} near highs — extreme weakness."
+            ),
+            value=pct_near_low,
+        ))
+    elif pct_near_low >= 50:
+        report.signals.append(RiskSignal(
+            name="52-week lows breadth",
+            severity="warning",
+            category="technical",
+            message=(
+                f"{near_low}/{counted} watched assets ({pct_near_low:.0f}%) sit "
+                f"near 52-week lows vs {near_high} near highs."
+            ),
+            value=pct_near_low,
+        ))
+
+
+def _check_drawdown_from_peak(market_data: dict, report: MarketHealthReport):
+    """Sustained drawdown from S&P 500 peak — standard portfolio risk metric.
+
+    Uses fiftyTwoWeekHigh from the index data.  This creates a persistent
+    floor under the score during sustained declines (unlike per-ticker drops
+    that come and go weekly).
+    """
+    sp500 = _find_ticker(market_data.get("indices", []), "^GSPC")
+    if not sp500:
+        return
+
+    price = sp500.get("price")
+    peak = sp500.get("fifty_two_week_high")
+    if price is None or peak is None or peak <= 0:
+        return
+
+    drawdown_pct = (price - peak) / peak * 100  # negative value
+
+    if drawdown_pct <= -20:
+        report.signals.append(RiskSignal(
+            name="S&P 500 drawdown from peak",
+            severity="critical",
+            category="technical",
+            message=(
+                f"S&P 500 is {drawdown_pct:.1f}% below its 52-week high — "
+                f"bear market territory. Recovery from -50% requires +100% gain."
+            ),
+            value=drawdown_pct,
+        ))
+    elif drawdown_pct <= -10:
+        report.signals.append(RiskSignal(
+            name="S&P 500 drawdown from peak",
+            severity="critical",
+            category="technical",
+            message=(
+                f"S&P 500 is {drawdown_pct:.1f}% below its 52-week high — "
+                f"correction deepening into bear territory."
+            ),
+            value=drawdown_pct,
+        ))
+    elif drawdown_pct <= -5:
+        report.signals.append(RiskSignal(
+            name="S&P 500 drawdown from peak",
+            severity="warning",
+            category="technical",
+            message=(
+                f"S&P 500 is {drawdown_pct:.1f}% below its 52-week high — "
+                f"correction territory."
+            ),
+            value=drawdown_pct,
+        ))
+
+
+def _check_safe_haven_rotation(market_data: dict, report: MarketHealthReport):
+    """Safe-haven rotation — validated by CNN Fear & Greed ("Safe Haven Demand")
+    and OFR Financial Stress Index ("Safe Assets" category).
+
+    Detects capital fleeing from equities into gold and/or long-term treasuries.
+    """
+    etfs = market_data.get("etfs", [])
+    spy = _find_ticker(etfs, "SPY")
+    gld = _find_ticker(etfs, "GLD")
+    tlt = _find_ticker(etfs, "TLT")
+
+    if not spy:
+        return
+    spy_1m = spy.get("change_pct_1m")
+    if spy_1m is None:
+        return
+
+    gld_fired = False
+    if gld:
+        gld_1m = gld.get("change_pct_1m")
+        if gld_1m is not None and gld_1m > 5 and spy_1m < -2:
+            gld_fired = True
+            report.signals.append(RiskSignal(
+                name="Safe-haven rotation: gold",
+                severity="warning",
+                category="macro",
+                message=(
+                    f"Gold (GLD) up {gld_1m:+.1f}% (1M) while equities (SPY) "
+                    f"down {spy_1m:+.1f}% — capital fleeing to safety."
+                ),
+                value=gld_1m,
+            ))
+
+    tlt_fired = False
+    if tlt:
+        tlt_1m = tlt.get("change_pct_1m")
+        if tlt_1m is not None and tlt_1m > 3 and spy_1m < -3:
+            tlt_fired = True
+            report.signals.append(RiskSignal(
+                name="Safe-haven rotation: treasuries",
+                severity="warning",
+                category="macro",
+                message=(
+                    f"Long-term treasuries (TLT) up {tlt_1m:+.1f}% (1M) while "
+                    f"equities (SPY) down {spy_1m:+.1f}% — treasury flight."
+                ),
+                value=tlt_1m,
+            ))
+
+    if gld_fired and tlt_fired:
+        report.signals.append(RiskSignal(
+            name="Broad safe-haven flight",
+            severity="critical",
+            category="macro",
+            message=(
+                "Both gold and long-term treasuries rallying while equities "
+                "decline — broad risk-off positioning across asset classes."
+            ),
+            value=0,
+        ))
+
+
+def _check_signal_convergence(report: MarketHealthReport):
+    """Signal convergence amplifier — validated by systemic risk research.
+
+    "Systemic financial stress occurs when multiple individual stress measures
+    become extremely high and strongly co-dependent simultaneously."
+    — ECB Working Paper 2842
+
+    When many independent signals fire across multiple categories, the
+    convergence itself is a risk signal beyond the sum of individual parts.
+    """
+    serious = [s for s in report.signals if s.severity in ("critical", "warning")]
+    n = len(serious)
+    categories = {s.category for s in serious}
+    n_cats = len(categories)
+
+    if n >= 12:
+        pts_label = f"{n} risk signals across {n_cats} categories"
+        report.signals.append(RiskSignal(
+            name="Signal convergence",
+            severity="critical",
+            category="technical",
+            message=(
+                f"Systemic convergence: {pts_label} firing simultaneously — "
+                f"historically precedes sustained downturns."
+            ),
+            value=float(n),
+        ))
+    elif n >= 8:
+        pts_label = f"{n} risk signals across {n_cats} categories"
+        report.signals.append(RiskSignal(
+            name="Signal convergence",
+            severity="warning",
+            category="technical",
+            message=f"Elevated convergence: {pts_label} firing simultaneously.",
+            value=float(n),
+        ))
+
+    if n >= 8 and n_cats >= 3:
+        report.signals.append(RiskSignal(
+            name="Cross-category convergence",
+            severity="info",
+            category="technical",
+            message=(
+                f"Risk signals span {n_cats} categories ({', '.join(sorted(categories))}) "
+                f"— cross-domain stress amplification."
+            ),
+            value=float(n_cats),
+        ))
+
+
 # --- Confidence & Scoring ---
 
 def _assess_confidence(report: MarketHealthReport) -> str:
@@ -516,21 +803,30 @@ def _find_ticker(items: list[dict], ticker: str) -> dict | None:
 
 
 def _breadth_points(n: int, cap: int = _MAX_EPS_DISTRESS_BREADTH_POINTS) -> int:
-    """Sublinear points from breadth count n (leading-warning baseline ≈15 at n=1)."""
+    """Sublinear points from breadth count n (leading-warning baseline ≈15 at n=1).
+
+    Bump multiplier raised from 5→8 after research recalibration so that breadth
+    beyond the first occurrence carries more weight (aligns with institutional
+    breadth models where widespread deterioration is qualitatively different).
+    """
     if n <= 0:
         return 0
     base_weight = 1.5  # leading
     linear = int(10 * base_weight)  # 15 for first bucket (warning tier)
-    bump = int(5 * base_weight * math.log1p(max(0, n - 1)) / math.log1p(25))
+    bump = int(8 * base_weight * math.log1p(max(0, n - 1)) / math.log1p(25))
     return min(linear + bump, cap)
 
 
 def _lagging_breadth_points(n: int, cap: int = _MAX_DEATH_CROSS_BREADTH_POINTS) -> int:
-    """Sublinear points for lagging breadth signals (base weight 1.0, not 1.5)."""
+    """Sublinear points for lagging breadth signals (base weight 1.0, not 1.5).
+
+    Bump multiplier raised from 5→8 to better reflect that broad death crosses
+    are a structural signal, not per-ticker noise.
+    """
     if n <= 0:
         return 0
     linear = 10  # warning tier × 1.0 lagging weight
-    bump = int(5 * math.log1p(max(0, n - 1)) / math.log1p(25))
+    bump = int(8 * math.log1p(max(0, n - 1)) / math.log1p(25))
     return min(linear + bump, cap)
 
 
@@ -554,6 +850,8 @@ def signal_points(signal: RiskSignal) -> int:
         return int(25 * weight)
     if signal.severity == "warning":
         return int(10 * weight)
+    if signal.severity == "elevated":
+        return int(5 * weight)
     if signal.severity == "info":
         return 2
     return 0

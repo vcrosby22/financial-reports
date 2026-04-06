@@ -45,6 +45,8 @@ def fetch_ticker_data(symbol: str, period: str = "3mo") -> dict | None:
             "dividend_yield": info.get("dividendYield"),
             "fifty_day_ma": info.get("fiftyDayAverage"),
             "two_hundred_day_ma": info.get("twoHundredDayAverage"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
             "rsi_14": round(rsi, 2) if rsi else None,
             "history": hist,
             "info": info,
