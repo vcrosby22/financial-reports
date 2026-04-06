@@ -106,35 +106,55 @@ def _apply_baseline_from_record(trend: RiskTrend, rec: dict, horizon: str) -> No
         trend.prev_1m_level = level
 
 
+def _find_recent_daily_snapshot(
+    anchor: "date", max_lookback: int = 3,
+) -> dict | None:
+    """Walk backwards from *anchor* up to *max_lookback* days to find the most
+    recent daily snapshot.  Bridges weekends and short holidays where CI doesn't
+    run (Mon-Fri only)."""
+    from datetime import date as _date  # local to avoid top-level circular
+    for offset in range(max_lookback + 1):
+        rec = get_daily_snapshot_for_date(anchor - timedelta(days=offset))
+        if rec is not None:
+            return rec
+    return None
+
+
 def compute_trend(health: MarketHealthReport) -> RiskTrend:
-    """Build a RiskTrend from daily snapshots when possible, else per-run JSONL."""
+    """Build a RiskTrend from daily snapshots when possible, else per-run JSONL.
+
+    For each horizon (1d / 1w / 1m) the daily JSON store is tried first,
+    walking back up to 3 extra calendar days to bridge weekends and holidays.
+    If no daily snapshot is found, the append-only JSONL is used with a generous
+    drift window (72 h for 1d to survive 3-day weekends, 36 h for 1w/1m).
+    """
     now_utc = datetime.now(timezone.utc)
     today_et = now_utc.astimezone(ZoneInfo("America/New_York")).date()
     records = read_risk_score_history()
     trend = RiskTrend(current_uncapped=getattr(health, "score_uncapped", health.score))
 
-    d_daily = get_daily_snapshot_for_date(today_et - timedelta(days=1))
-    w_daily = get_daily_snapshot_for_date(today_et - timedelta(days=7))
-    m_daily = get_daily_snapshot_for_date(today_et - timedelta(days=30))
+    d_daily = _find_recent_daily_snapshot(today_et - timedelta(days=1))
+    w_daily = _find_recent_daily_snapshot(today_et - timedelta(days=7))
+    m_daily = _find_recent_daily_snapshot(today_et - timedelta(days=30))
 
     if d_daily:
         _apply_baseline_from_record(trend, d_daily, "1d")
     elif records:
-        day_ago = _find_nearest_record(records, now_utc - timedelta(days=1))
+        day_ago = _find_nearest_record(records, now_utc - timedelta(days=1), max_drift_hours=72)
         if day_ago:
             _apply_baseline_from_record(trend, day_ago, "1d")
 
     if w_daily:
         _apply_baseline_from_record(trend, w_daily, "1w")
     elif records:
-        week_ago = _find_nearest_record(records, now_utc - timedelta(days=7))
+        week_ago = _find_nearest_record(records, now_utc - timedelta(days=7), max_drift_hours=36)
         if week_ago:
             _apply_baseline_from_record(trend, week_ago, "1w")
 
     if m_daily:
         _apply_baseline_from_record(trend, m_daily, "1m")
     elif records:
-        month_ago = _find_nearest_record(records, now_utc - timedelta(days=30))
+        month_ago = _find_nearest_record(records, now_utc - timedelta(days=30), max_drift_hours=36)
         if month_ago:
             _apply_baseline_from_record(trend, month_ago, "1m")
 
