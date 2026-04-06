@@ -932,7 +932,7 @@ def _section_kpi_cards(
     def _index_card(label: str, data: dict | None) -> str | None:
         if not data or not data.get("price"):
             return None
-        chg = data.get("change_1d", 0) or 0
+        chg = data.get("change_pct_1d", 0) or 0
         arrow = "&#9650;" if chg >= 0 else "&#9660;"
         chg_color = "var(--green)" if chg >= 0 else "var(--red)"
         return _kpi(label, f"{data['price']:,.0f}", chg_color, f"{arrow} {chg:+.2f}%")
