@@ -327,9 +327,13 @@ def _build_html(
     nasdaq_kpi = next((i for i in indices if i.get("ticker") == "^IXIC"), None)
     oil_kpi = next((i for i in commodities if i.get("ticker") == "BZ=F"), None) if commodities else None
 
+    from .data.risk_score_daily import backfill_daily_from_jsonl, list_daily_snapshots_chronological
+    backfill_daily_from_jsonl()
+    daily_snapshots = list_daily_snapshots_chronological()
+
     sections = []
     sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend))
-    risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance)
+    risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance, daily_snapshots, risk_trend)
     risk_inner += _snapshot_narrative(health, risk_trend)
     if risk_trend and risk_trend.has_any:
         risk_inner += _section_risk_trend(risk_trend)
@@ -975,49 +979,188 @@ def _section_kpi_cards(
     )
 
 
-def _risk_gauge_html(uncapped: int) -> str:
-    """CSS-only gauge bar showing where the risk score sits on the extended scale."""
-    display_max = max(uncapped, 200)
-    pct = min(uncapped / display_max * 100, 100)
-    segments = [
-        (20 / display_max * 100, "#22c55e", "LOW"),
-        (20 / display_max * 100, "#eab308", "MOD"),
-        (20 / display_max * 100, "#f97316", "ELEV"),
-        (20 / display_max * 100, "#ef4444", "HIGH"),
-        (20 / display_max * 100, "#dc2626", "CRIT"),
+def _risk_trend_chart_html(
+    snapshots: list[dict],
+    trend: "RiskTrend | None" = None,
+) -> str:
+    """Pure inline SVG line chart showing risk score trajectory over time.
+
+    Renders color-coded background bands for risk levels and marks key
+    comparison points (today, 1d ago, 1w ago, 1m ago).
+    """
+    if not snapshots:
+        return '<div style="color:var(--text-dim);font-size:0.8rem;">No history data yet — chart will appear after 2+ daily runs.</div>'
+
+    from datetime import date as _date, timedelta
+
+    W, H = 600, 170
+    PAD_L, PAD_R, PAD_T, PAD_B = 42, 16, 14, 28
+
+    plot_w = W - PAD_L - PAD_R
+    plot_h = H - PAD_T - PAD_B
+
+    scores = [s.get("score_uncapped", s.get("score", 0)) for s in snapshots]
+    dates = [s.get("snapshot_date", "") for s in snapshots]
+
+    y_min = 0
+    y_max = max(max(scores) * 1.15, 100)
+
+    def _x(i: int) -> float:
+        if len(scores) == 1:
+            return PAD_L + plot_w / 2
+        return PAD_L + (i / (len(scores) - 1)) * plot_w
+
+    def _y(v: float) -> float:
+        return PAD_T + plot_h - ((v - y_min) / (y_max - y_min)) * plot_h
+
+    risk_bands = [
+        (0, 20, "rgba(34,197,94,0.10)", "Low"),
+        (20, 40, "rgba(234,179,8,0.08)", ""),
+        (40, 60, "rgba(249,115,22,0.08)", ""),
+        (60, 80, "rgba(239,68,68,0.08)", ""),
+        (80, 100, "rgba(220,38,38,0.10)", ""),
+        (100, 200, "rgba(153,27,27,0.10)", ""),
+        (200, 9999, "rgba(127,29,29,0.12)", ""),
     ]
-    if display_max > 100:
-        segments.append((50 / display_max * 100, "#991b1b", "SEVERE"))
-    if display_max > 150:
-        segments.append((50 / display_max * 100, "#7f1d1d", "EXTREME"))
-    if display_max > 200:
-        segments.append((100 / display_max * 100, "#b91c1c", "CATAST"))
+    band_rects = []
+    for lo, hi, color, label in risk_bands:
+        if lo >= y_max:
+            break
+        top = _y(min(hi, y_max))
+        bot = _y(max(lo, y_min))
+        if bot - top < 1:
+            continue
+        band_rects.append(
+            f'<rect x="{PAD_L}" y="{top:.1f}" width="{plot_w}" '
+            f'height="{bot - top:.1f}" fill="{color}" />'
+        )
 
-    gradient_parts = []
-    pos = 0
-    for width, color, _ in segments:
-        gradient_parts.append(f"{color} {pos:.1f}%, {color} {pos + width:.1f}%")
-        pos += width
+    grid_lines = []
+    step = 100 if y_max > 400 else 50 if y_max > 150 else 20
+    val = step
+    while val < y_max:
+        yp = _y(val)
+        grid_lines.append(
+            f'<line x1="{PAD_L}" y1="{yp:.1f}" x2="{W - PAD_R}" y2="{yp:.1f}" '
+            f'stroke="rgba(255,255,255,0.07)" stroke-width="0.5" />'
+        )
+        grid_lines.append(
+            f'<text x="{PAD_L - 4}" y="{yp + 3:.1f}" '
+            f'fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="end">{int(val)}</text>'
+        )
+        val += step
 
-    gradient = ", ".join(gradient_parts)
-    return f"""<div style="position:relative;height:24px;border-radius:12px;overflow:hidden;
-      background:linear-gradient(to right, {gradient});margin:0.5rem 0;">
-  <div style="position:absolute;left:{pct:.1f}%;top:0;bottom:0;width:3px;background:white;
-    box-shadow:0 0 6px rgba(255,255,255,0.8);transform:translateX(-50%);"></div>
-  <div style="position:absolute;left:{pct:.1f}%;top:-2px;transform:translateX(-50%);
-    font-size:0.75rem;font-weight:700;color:white;text-shadow:0 0 4px #000;">▼</div>
-</div>
-<div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-dim);padding:0 2px;">
-  <span>0</span><span>20</span><span>40</span><span>60</span><span>80</span><span>100</span>
-  {"<span>150</span>" if display_max > 100 else ""}{"<span>200+</span>" if display_max > 150 else ""}
-</div>"""
+    points = [(_x(i), _y(s)) for i, s in enumerate(scores)]
+    polyline_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+
+    dots = []
+    for x, y in points:
+        dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.5" fill="#60a5fa" opacity="0.7" />')
+
+    today_str = dates[-1] if dates else ""
+    try:
+        today_date = _date.fromisoformat(today_str) if today_str else None
+    except ValueError:
+        today_date = None
+
+    def _find_date_index(target_iso: str) -> int | None:
+        for i, d in enumerate(dates):
+            if d == target_iso:
+                return i
+        return None
+
+    def _find_nearest_date_index(target: _date, max_drift: int = 3) -> int | None:
+        for offset in range(max_drift + 1):
+            idx = _find_date_index((target - timedelta(days=offset)).isoformat())
+            if idx is not None:
+                return idx
+        return None
+
+    markers = []
+    marker_labels_below: list[tuple[float, str]] = []
+
+    def _add_marker(idx: int, label: str, color: str, score_val: int, above: bool = True):
+        x, y = points[idx]
+        markers.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{color}" '
+            f'stroke="white" stroke-width="1.5" />'
+        )
+        txt_y = y - 10 if above else y + 16
+        markers.append(
+            f'<text x="{x:.1f}" y="{txt_y:.1f}" fill="white" font-size="10" '
+            f'font-weight="600" text-anchor="middle" '
+            f'style="text-shadow:0 0 4px rgba(0,0,0,0.8);">{score_val}</text>'
+        )
+        marker_labels_below.append((x, label))
+
+    _add_marker(len(scores) - 1, "Today", "#22c55e", scores[-1], above=True)
+
+    if today_date and len(scores) > 1:
+        d1 = _find_nearest_date_index(today_date - timedelta(days=1))
+        if d1 is not None and d1 != len(scores) - 1:
+            _add_marker(d1, "1d", "#60a5fa", scores[d1], above=scores[d1] > scores[-1])
+
+        w1 = _find_nearest_date_index(today_date - timedelta(days=7))
+        if w1 is not None and w1 != len(scores) - 1 and w1 != d1:
+            neighbors = [scores[-1]]
+            if d1 is not None:
+                neighbors.append(scores[d1])
+            _add_marker(w1, "1w", "#f59e0b", scores[w1], above=scores[w1] > max(neighbors))
+
+        m1 = _find_nearest_date_index(today_date - timedelta(days=30))
+        if m1 is not None and m1 != len(scores) - 1 and m1 != d1 and m1 != w1:
+            _add_marker(m1, "1m", "#a78bfa", scores[m1], above=True)
+
+    date_labels = []
+    if len(dates) <= 10:
+        shown = set(range(len(dates)))
+    else:
+        shown = {0, len(dates) - 1}
+        for i in range(1, len(dates) - 1):
+            if i % max(1, len(dates) // 6) == 0:
+                shown.add(i)
+    for i in sorted(shown):
+        x = _x(i)
+        short = dates[i][5:] if len(dates[i]) >= 10 else dates[i]
+        date_labels.append(
+            f'<text x="{x:.1f}" y="{H - 4:.1f}" fill="rgba(255,255,255,0.4)" '
+            f'font-size="9" text-anchor="middle">{short}</text>'
+        )
+
+    for x, lbl in marker_labels_below:
+        date_labels.append(
+            f'<text x="{x:.1f}" y="{H - 14:.1f}" fill="rgba(255,255,255,0.6)" '
+            f'font-size="8" font-weight="600" text-anchor="middle">{lbl}</text>'
+        )
+
+    svg_parts = [
+        f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;max-height:180px;font-family:inherit;">',
+        "".join(band_rects),
+        "".join(grid_lines),
+        f'<polyline points="{polyline_pts}" fill="none" stroke="#60a5fa" '
+        f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />',
+        "".join(dots),
+        "".join(markers),
+        "".join(date_labels),
+        "</svg>",
+    ]
+
+    return f'<div style="margin:0.5rem 0;">{"".join(svg_parts)}</div>'
 
 
-def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_color: str, guidance: dict) -> str:
+def _section_risk_summary(
+    health: MarketHealthReport,
+    risk_color: str,
+    conf_color: str,
+    guidance: dict,
+    daily_snapshots: list[dict] | None = None,
+    risk_trend: "RiskTrend | None" = None,
+) -> str:
     uncapped = _health_uncapped_score(health)
     score_display = f"{uncapped}" if uncapped > 100 else f"{health.score}"
     score_label = f"Score (uncapped)" if uncapped > 100 else "Score / 100"
-    gauge = _risk_gauge_html(uncapped)
+    chart = _risk_trend_chart_html(daily_snapshots or [], risk_trend)
     return f"""
 <div class="risk-banner">
   <div>
@@ -1033,7 +1176,7 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
     <div style="color: var(--text-dim); font-size: 0.8rem;">Data completeness</div>
   </div>
   <div style="flex-grow: 1;">
-    {gauge}
+    {chart}
     <div class="meta" style="margin-top: 0.4rem;">
       <span>Critical: {health.critical_count}</span>
       <span>Warnings: {health.warning_count}</span>

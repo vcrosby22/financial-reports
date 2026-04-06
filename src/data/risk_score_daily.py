@@ -121,3 +121,58 @@ def list_daily_snapshots_chronological(path: Path | None = None) -> list[dict]:
             rows.append(rec)
     rows.sort(key=lambda r: r.get("snapshot_date", ""))
     return rows
+
+
+def backfill_daily_from_jsonl(path: Path | None = None) -> int:
+    """Fill gaps in the daily store using the append-only JSONL history.
+
+    For each unique date in the JSONL that is *not* already in the daily store,
+    the last entry for that date is inserted.  Returns the number of days added.
+    """
+    from .risk_score_log import LOG_REL_PATH as JSONL_REL  # avoid circular at module level
+
+    daily_path = path if path is not None else PROJECT_ROOT / DAILY_REL_PATH
+    jsonl_path = PROJECT_ROOT / JSONL_REL
+
+    if not jsonl_path.exists():
+        return 0
+
+    store = load_daily_store(daily_path)
+    existing = set(store["by_date"].keys())
+
+    last_per_day: dict[str, dict] = {}
+    try:
+        with open(jsonl_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                day = rec.get("snapshot_date") or rec.get("ts_utc", "")[:10]
+                if day and day not in existing:
+                    last_per_day[day] = rec
+    except (OSError, json.JSONDecodeError):
+        return 0
+
+    added = 0
+    for day, rec in last_per_day.items():
+        store["by_date"][day] = {
+            "snapshot_date": day,
+            "ts_utc": rec.get("ts_utc", ""),
+            "score": rec.get("score", 0),
+            "score_uncapped": rec.get("score_uncapped", rec.get("score", 0)),
+            "overall_risk": rec.get("overall_risk", ""),
+            "critical_count": rec.get("critical_count", 0),
+            "warning_count": rec.get("warning_count", 0),
+            "leading_signal_count": rec.get("leading_signal_count", 0),
+            "source": rec.get("source", "backfill"),
+        }
+        added += 1
+
+    if added:
+        try:
+            _atomic_write_json(daily_path, store)
+        except OSError:
+            return 0
+
+    return added
