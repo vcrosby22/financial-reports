@@ -1045,6 +1045,22 @@ def _section_risk_summary(health: MarketHealthReport, risk_color: str, conf_colo
 </div>"""
 
 
+def _baseline_day_label(iso_date: str | None) -> str:
+    """Human-friendly label for the 1d baseline date: 'yesterday', 'Friday', etc."""
+    if not iso_date:
+        return "yesterday"
+    try:
+        from datetime import date as _date
+        baseline = _date.fromisoformat(iso_date)
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        diff = (today - baseline).days
+        if diff <= 1:
+            return "yesterday"
+        return baseline.strftime("%A")  # "Friday", "Thursday", etc.
+    except (ValueError, TypeError):
+        return "yesterday"
+
+
 def _snapshot_narrative(health: MarketHealthReport, trend: RiskTrend | None) -> str:
     """One plain-English sentence summarising today's score, movement, and a link to history."""
     uncapped = _health_uncapped_score(health)
@@ -1054,7 +1070,8 @@ def _snapshot_narrative(health: MarketHealthReport, trend: RiskTrend | None) -> 
         movements: list[str] = []
         if trend.delta_1d is not None:
             direction = "up" if trend.delta_1d > 0 else "down" if trend.delta_1d < 0 else "flat"
-            movements.append(f"<strong>{direction} {abs(trend.delta_1d)} points</strong> from yesterday")
+            day_label = _baseline_day_label(trend.prev_1d_date)
+            movements.append(f"<strong>{direction} {abs(trend.delta_1d)} points</strong> from {day_label}")
         if trend.delta_1w is not None:
             direction = "up" if trend.delta_1w > 0 else "down" if trend.delta_1w < 0 else "flat"
             movements.append(f"{direction} {abs(trend.delta_1w)} over the past week")

@@ -36,6 +36,7 @@ class RiskTrend:
     prev_1d_level: str | None = None
     prev_1w_level: str | None = None
     prev_1m_level: str | None = None
+    prev_1d_date: str | None = None  # ISO date of the 1d baseline snapshot
 
     @property
     def delta_1d(self) -> int | None:
@@ -98,6 +99,7 @@ def _apply_baseline_from_record(trend: RiskTrend, rec: dict, horizon: str) -> No
     if horizon == "1d":
         trend.prev_1d_uncapped = uncapped
         trend.prev_1d_level = level
+        trend.prev_1d_date = rec.get("snapshot_date") or rec.get("ts_utc", "")[:10]
     elif horizon == "1w":
         trend.prev_1w_uncapped = uncapped
         trend.prev_1w_level = level
