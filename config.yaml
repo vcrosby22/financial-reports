@@ -138,7 +138,7 @@ supply_chain_proxies:
 supply_chain:
   # Set to a date (YYYY-MM-DD) to manually anchor cascade timelines.
   # When null, the engine uses Hormuz API crisis data or historical peak date.
-  crisis_start_override: null
+  crisis_start_override: "2026-02-28"  # Iran conflict / Strait of Hormuz disruption onset
 
 # Market indices to track for overall health
 market_indices:
