@@ -7,4 +7,5 @@ venv/
 !/data/risk_score_history.jsonl
 !/data/risk_score_daily.json
 !/data/supply_chain_history.jsonl
+!/data/helium_usgs_baseline.json
 reports/

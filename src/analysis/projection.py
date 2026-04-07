@@ -129,15 +129,15 @@ def compute_projection(
             score -= 0.5
             factors.append(f"{bullish_count} macro indicators improving")
 
-    # --- Supply chain cascade momentum ---
+    # --- Supply chain cascade momentum (6-stage model) ---
     if cascade_active_count > 0:
         data_points += 1
-        if cascade_active_count >= 4:
+        if cascade_active_count >= 3:
             score += 2.0
-            factors.append(f"Broad supply chain cascade: {cascade_active_count} stages active")
+            factors.append(f"Broad supply chain cascade: {cascade_active_count}/6 stages active")
         elif cascade_active_count >= 2:
             score += 1.0
-            factors.append(f"Supply chain cascade building: {cascade_active_count} stages active")
+            factors.append(f"Supply chain cascade building: {cascade_active_count}/6 stages active")
         elif cascade_active_count == 1:
             score += 0.3
             factors.append("1 supply chain cascade stage active")

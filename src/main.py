@@ -7,6 +7,7 @@ Usage:
     python -m src risk              # Risk assessment only
     python -m src personal          # Personal defense dashboard (LOCAL ONLY)
     python -m src predictions       # View prediction tracker
+    python -m src validate_data     # Preflight FRED IDs + Yahoo tickers (exit 1 on failure)
 """
 
 import argparse
@@ -27,6 +28,7 @@ from .data.database import get_session, init_db
 from .data.forex import fetch_forex_data
 from .data.fundamentals import fetch_fundamentals_batch
 from .data.macro import fetch_macro_data
+from .data.validate_sources import run_validate_sources
 from .data.models import Alert, AnalysisReport, MarketSnapshot
 from .data.stocks import fetch_market_indices, fetch_multiple
 from .report import generate_report
@@ -443,6 +445,17 @@ def cmd_report(output: str | None = None, no_open: bool = False):
     generate_report(output_path=output, open_browser=not no_open)
 
 
+def cmd_validate_data() -> int:
+    console.print(
+        Panel(
+            "[bold]Financial Agent — Data source validation[/bold]\n"
+            "FRED (if key set) + Yahoo symbols from config (report universe).",
+            border_style="cyan",
+        )
+    )
+    return run_validate_sources()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Financial Agent — Market trends and collapse risk analysis",
@@ -455,6 +468,7 @@ def main():
   report        Generate static HTML report (opens in browser)
   personal      Personal defense dashboard (LOCAL ONLY — triggers, 401k math, convergence)
   predictions   View prediction tracker and accuracy
+  validate_data Preflight FRED series IDs + Yahoo symbols (needs FRED_API_KEY for FRED half)
 
   CI / shareable URL (stable filename):
     python -m src report --no-open --output site/index.html
@@ -462,14 +476,28 @@ def main():
   See PORTING.md, PUBLISHING.md, ../public-market-report/README.md
         """,
     )
-    parser.add_argument("command", choices=["init", "scan", "analyze", "risk", "report", "personal", "predictions"],
-                        help="Command to run")
+    parser.add_argument(
+        "command",
+        choices=[
+            "init",
+            "scan",
+            "analyze",
+            "risk",
+            "report",
+            "personal",
+            "predictions",
+            "validate_data",
+        ],
+        help="Command to run",
+    )
     parser.add_argument("--output", "-o", help="Output path for report (report command only)")
     parser.add_argument("--no-open", action="store_true", help="Don't open report in browser (report command only)")
     args = parser.parse_args()
 
     if args.command == "report":
         cmd_report(output=args.output, no_open=args.no_open)
+    elif args.command == "validate_data":
+        raise SystemExit(cmd_validate_data())
     else:
         commands = {
             "init": cmd_init,

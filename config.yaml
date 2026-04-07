@@ -53,7 +53,7 @@ watchlist:
     # --- Financials ---
     - GS        # Goldman Sachs — investment banking
     - BRK-B     # Berkshire Hathaway — conglomerate (Buffett)
-    - SQ        # Block (Square) — fintech/payments (mid-cap)
+    - XYZ       # Block (Square) — fintech/payments; ticker XYZ (NYSE) after SQ sunset
 
     # --- Real Estate ---
     - AMT       # American Tower — cell tower REITs
@@ -126,6 +126,19 @@ supply_chain_proxies:
   - HG=F      # Copper futures
   - SOXX      # PHLX Semiconductor ETF
   - DBA       # Invesco DB Agriculture Fund
+  # v2 additions — fertilizer, pharma, India, materials
+  - MOS       # Mosaic — phosphate/potash fertilizer
+  - NTR       # Nutrien — nitrogen/potash/phosphate
+  - CF        # CF Industries — nitrogen fertilizer
+  - XPH       # SPDR S&P Pharmaceuticals ETF
+  - INDA      # iShares MSCI India ETF
+  - SLX       # VanEck Steel ETF — materials/industrial proxy
+
+# Supply chain cascade timeline anchoring
+supply_chain:
+  # Set to a date (YYYY-MM-DD) to manually anchor cascade timelines.
+  # When null, the engine uses Hormuz API crisis data or historical peak date.
+  crisis_start_override: null
 
 # Market indices to track for overall health
 market_indices:

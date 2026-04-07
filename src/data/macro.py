@@ -34,13 +34,19 @@ FRED_SERIES: list[tuple[str, str, str]] = [
     ("GASREGW", "US Regular Gasoline Price", "supply_chain"),
     ("DCOILBRENTEU", "Brent Crude Oil (FRED)", "supply_chain"),
     ("INDPRO", "Industrial Production Index", "supply_chain"),
+    ("TCU", "Capacity Utilization: Total Industry", "supply_chain"),
+    ("MANEMP", "Manufacturing Employment (All Employees)", "supply_chain"),
+    ("DGORDER", "Durable Goods New Orders", "supply_chain"),
+    ("AMTMNO", "Total Manufacturing New Orders", "supply_chain"),
+    ("WPU06790303", "PPI: Nitrogenous Fertilizer Materials", "supply_chain"),
     # CPI component breakdown — where inflation is hitting hardest
     ("CUSR0000SAF11", "CPI Food at Home", "inflation_components"),
     ("CUSR0000SEFV", "CPI Food Away from Home", "inflation_components"),
     ("CUSR0000SAH1", "CPI Shelter", "inflation_components"),
     ("CUSR0000SEHA", "CPI Rent of Primary Residence", "inflation_components"),
     ("CPIENGSL", "CPI Energy", "inflation_components"),
-    ("CUSR0000SAM", "CPI Medical Care", "inflation_components"),
+    # CUSR0000SAM no longer resolves via FRED API; CPIMEDSL is CPI-U medical care (SA), same headline concept.
+    ("CPIMEDSL", "CPI Medical Care", "inflation_components"),
     ("CUSR0000SETA02", "CPI Used Cars and Trucks", "inflation_components"),
     ("CPILFESL", "CPI Core (ex Food & Energy)", "inflation_components"),
     # Inflation expectations and alternative measures
@@ -133,6 +139,20 @@ def fetch_macro_data() -> MacroSnapshot | None:
         )
     else:
         console.print(f"  [dim]FRED: {n} macro indicators loaded.[/dim]")
+        expected_ids = [s[0] for s in FRED_SERIES]
+        loaded_ids = {ind.series_id for ind in snapshot.indicators}
+        missing = [sid for sid in expected_ids if sid not in loaded_ids]
+        if missing:
+            id_to_name = {s[0]: s[1] for s in FRED_SERIES}
+            details = ", ".join(f"{m} ({id_to_name.get(m, '?')})" for m in missing)
+            console.print(
+                f"[yellow]FRED drift: {len(missing)} of {len(expected_ids)} series missing after fetch — "
+                f"update macro.py / FRED_SERIES or check API. Missing: {details}[/yellow]"
+            )
+            console.print(
+                "[dim]Tip: run `python -m src validate_data` (with FRED_API_KEY) to preflight all FRED IDs and "
+                "Yahoo tickers before publishing.[/dim]"
+            )
 
     return snapshot
 
@@ -431,10 +451,77 @@ def _classify_signal(indicator: MacroIndicator):
             indicator.signal = "neutral"
             indicator.description = "Industrial production stable"
 
+    elif sid == "TCU":
+        if indicator.value < 72:
+            indicator.signal = "critical"
+            indicator.description = f"Capacity utilization at {indicator.value:.1f}% — deep industrial slack"
+        elif indicator.value < 75:
+            indicator.signal = "warning"
+            indicator.description = f"Capacity utilization at {indicator.value:.1f}% — manufacturing underperforming"
+        elif indicator.value > 82:
+            indicator.signal = "bullish"
+            indicator.description = f"Capacity utilization at {indicator.value:.1f}% — factories running hot"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Capacity utilization at {indicator.value:.1f}% — normal range"
+
+    elif sid == "MANEMP":
+        if indicator.change is not None and indicator.change < -50:
+            indicator.signal = "critical"
+            indicator.description = f"Manufacturing employment dropping sharply ({indicator.change:+.0f}K)"
+        elif indicator.change is not None and indicator.change < -20:
+            indicator.signal = "warning"
+            indicator.description = f"Manufacturing employment declining ({indicator.change:+.0f}K)"
+        elif indicator.change is not None and indicator.change > 20:
+            indicator.signal = "bullish"
+            indicator.description = f"Manufacturing employment growing ({indicator.change:+.0f}K)"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = "Manufacturing employment stable"
+
+    elif sid in ("DGORDER", "AMTMNO"):
+        label = "Durable goods" if sid == "DGORDER" else "Manufacturing"
+        yoy = indicator.yoy_change
+        if yoy is not None:
+            if yoy < -10:
+                indicator.signal = "critical"
+                indicator.description = f"{label} orders contracting ({yoy:+.1f}% YoY) — demand destruction"
+            elif yoy < -3:
+                indicator.signal = "warning"
+                indicator.description = f"{label} orders declining ({yoy:+.1f}% YoY)"
+            elif yoy > 5:
+                indicator.signal = "bullish"
+                indicator.description = f"{label} orders growing ({yoy:+.1f}% YoY)"
+            else:
+                indicator.signal = "neutral"
+                indicator.description = f"{label} orders flat ({yoy:+.1f}% YoY)"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"{label} orders: {indicator.value:,.0f}M (insufficient data for YoY)"
+
+    elif sid == "WPU06790303":
+        yoy = indicator.yoy_change
+        if yoy is not None:
+            if yoy > 30:
+                indicator.signal = "critical"
+                indicator.description = f"Nitrogen fertilizer PPI surging ({yoy:+.1f}% YoY)"
+            elif yoy > 15:
+                indicator.signal = "warning"
+                indicator.description = f"Nitrogen fertilizer PPI elevated ({yoy:+.1f}% YoY)"
+            elif yoy < -15:
+                indicator.signal = "bearish"
+                indicator.description = f"Nitrogen fertilizer PPI falling sharply ({yoy:+.1f}% YoY) — demand concern"
+            else:
+                indicator.signal = "neutral"
+                indicator.description = f"Nitrogen fertilizer PPI stable ({yoy:+.1f}% YoY)"
+        else:
+            indicator.signal = "neutral"
+            indicator.description = f"Nitrogen fertilizer PPI: {indicator.value:,.1f} (index)"
+
     # --- CPI components (index values; signal based on YoY%) ---
 
     elif sid in ("CUSR0000SAF11", "CUSR0000SEFV", "CUSR0000SAH1", "CUSR0000SEHA",
-                 "CPIENGSL", "CUSR0000SAM", "CUSR0000SETA02", "CPILFESL"):
+                 "CPIENGSL", "CPIMEDSL", "CUSR0000SETA02", "CPILFESL"):
         yoy = indicator.yoy_change
         if yoy is not None:
             if yoy > 6:

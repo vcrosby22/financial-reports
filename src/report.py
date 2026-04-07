@@ -226,9 +226,21 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     else:
         console.print("  [dim]No prior risk data — trend indicator hidden.[/dim]")
 
+    console.print("  Fetching optional cascade data sources...")
+    from .data.hormuz import fetch_hormuz_data
+    from .data.openfda import fetch_fda_shortages
+    from .data.eia import fetch_eia_data
+    hormuz_data = fetch_hormuz_data()
+    fda_data = fetch_fda_shortages()
+    eia_data = fetch_eia_data()
+
     console.print("  Evaluating supply chain cascade...")
     from .analysis.supply_chain import CascadeStage, evaluate_cascade, persist_cascade_snapshot
-    cascade_stages = evaluate_cascade(supply_chain_proxies, macro_data, commodities)
+    cascade_stages = evaluate_cascade(
+        supply_chain_proxies, macro_data, commodities,
+        hormuz=hormuz_data, fda_shortages=fda_data, eia=eia_data,
+        config=config,
+    )
     active_stages = [s for s in cascade_stages if s.status == "active"]
     console.print(f"  Cascade: {len(active_stages)} active, {len(cascade_stages) - len(active_stages)} projected/not_started")
     sc_log = persist_cascade_snapshot(cascade_stages)
@@ -2021,7 +2033,7 @@ def _section_inflation(macro_data: MacroSnapshot) -> str:
 
     component_ids = {
         "CUSR0000SAF11", "CUSR0000SEFV", "CUSR0000SAH1", "CUSR0000SEHA",
-        "CPIENGSL", "CUSR0000SAM", "CUSR0000SETA02", "CPILFESL",
+        "CPIENGSL", "CPIMEDSL", "CUSR0000SETA02", "CPILFESL",
     }
     expectation_ids = {
         "T10YIEM", "MICH", "MEDCPIM158SFRBCLE", "PCETRIM12M159SFRBDAL",
@@ -2511,33 +2523,61 @@ that cannot recur in the modern financial system. Average oil-shock recovery: {c
 
 def _section_supply_chain(cascade_stages: list | None = None) -> str:
     """Public-safe supply chain risk monitor — driven by live data when available."""
+    from datetime import date as _date
+
+    has_anchored_dates = (
+        cascade_stages
+        and any(getattr(s, "date_range_start", None) for s in cascade_stages)
+    )
+
     if cascade_stages:
         stage_rows = []
         for stage in cascade_stages:
+            coverage = f"{stage.inputs_received}/{stage.inputs_expected}" if hasattr(stage, "inputs_expected") else ""
+            stress_pct = f"{stage.stress_score:.0%}" if hasattr(stage, "stress_score") else f"{stage.confidence:.0%}"
+
+            # Model-vs-actual annotations
+            timeline_note = ""
+            if has_anchored_dates and hasattr(stage, "model_should_be_active"):
+                if stage.model_should_be_active and stage.status == "not_started":
+                    timeline_note = '<div style="font-size:0.7rem;color:var(--orange);margin-top:0.2rem;">Model expects activity in this window</div>'
+                elif stage.status == "active" and not stage.model_should_be_active:
+                    if stage.date_range_start and _date.today() < stage.date_range_start:
+                        timeline_note = '<div style="font-size:0.7rem;color:var(--cyan);margin-top:0.2rem;">Ahead of model timeline</div>'
+                    elif stage.date_range_end and _date.today() > stage.date_range_end:
+                        timeline_note = '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.2rem;">Past model window — still active</div>'
+
+            first_activated = ""
+            if hasattr(stage, "first_activated_date") and stage.first_activated_date:
+                first_activated = (
+                    f'<div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem;">'
+                    f'First activated: {stage.first_activated_date.strftime("%b %-d, %Y")}</div>'
+                )
+
             if stage.status == "active":
                 status_html = f'<span style="color:var(--red);font-weight:600;">ACTIVE</span>'
-                conf_html = f' <span style="font-size:0.7rem;color:var(--text-dim);">({stage.confidence:.0%})</span>'
+                meta_html = f' <span style="font-size:0.7rem;color:var(--text-dim);">(stress {stress_pct}, data {coverage})</span>'
                 bg = "background:rgba(239,68,68,0.08);"
             elif stage.status == "projected":
                 status_html = '<span style="color:var(--yellow);font-weight:600;">Projected</span>'
-                conf_html = f' <span style="font-size:0.7rem;color:var(--text-dim);">({stage.confidence:.0%})</span>' if stage.confidence >= 0.2 else ''
+                meta_html = f' <span style="font-size:0.7rem;color:var(--text-dim);">(stress {stress_pct}, data {coverage})</span>' if stage.confidence >= 0.2 else ''
                 bg = "background:rgba(234,179,8,0.05);"
             else:
                 status_html = '<span style="color:var(--text-dim);">—</span>'
-                conf_html = ''
+                meta_html = f' <span style="font-size:0.65rem;color:var(--text-dim);">({coverage})</span>' if coverage else ''
                 bg = ""
 
             evidence_html = ""
             if stage.evidence:
-                evidence_items = "".join(f"<li>{escape(e)}</li>" for e in stage.evidence[:3])
+                evidence_items = "".join(f"<li>{escape(e)}</li>" for e in stage.evidence[:5])
                 evidence_html = f"<ul style='margin:0.25rem 0 0 1rem;padding:0;font-size:0.75rem;color:var(--text-dim);'>{evidence_items}</ul>"
 
             stage_rows.append(
                 f'<tr style="{bg}"><td style="white-space:nowrap;font-weight:600;">{escape(stage.timeframe)}</td>'
                 f"<td><strong>{escape(stage.name)}</strong><br>"
                 f"<span style='font-size:0.8rem;color:var(--text-dim);'>{escape(stage.description)}</span>"
-                f"{evidence_html}</td>"
-                f"<td style='white-space:nowrap;'>{status_html}{conf_html}</td></tr>"
+                f"{evidence_html}{timeline_note}{first_activated}</td>"
+                f"<td style='white-space:nowrap;'>{status_html}{meta_html}</td></tr>"
             )
     else:
         stage_rows = [
@@ -2546,19 +2586,39 @@ def _section_supply_chain(cascade_stages: list | None = None) -> str:
 
     active_count = sum(1 for s in (cascade_stages or []) if s.status == "active")
     summary = ""
-    if active_count >= 4:
+    if active_count >= 3:
         summary = '<div style="padding:0.5rem 0.75rem;background:rgba(239,68,68,0.12);border-radius:0.5rem;margin-bottom:1rem;font-size:0.85rem;"><strong style="color:var(--red);">Broad cascade underway</strong> — {n} of {t} stages active. Supply chain stress is spreading across sectors.</div>'.format(n=active_count, t=len(cascade_stages or []))
     elif active_count >= 2:
         summary = '<div style="padding:0.5rem 0.75rem;background:rgba(234,179,8,0.1);border-radius:0.5rem;margin-bottom:1rem;font-size:0.85rem;"><strong style="color:var(--yellow);">Cascade building</strong> — {n} stages active. Watch for downstream activation.</div>'.format(n=active_count)
 
+    # Timeline mode badge
+    elapsed_badge = ""
+    if has_anchored_dates and cascade_stages:
+        first_stage = cascade_stages[0]
+        if first_stage.date_range_start:
+            crisis_start = first_stage.date_range_start
+            elapsed = (_date.today() - crisis_start).days
+            elapsed_badge = (
+                f'<div style="padding:0.4rem 0.75rem;background:rgba(6,182,212,0.1);border-radius:0.5rem;'
+                f'margin-bottom:0.75rem;font-size:0.8rem;color:var(--cyan);">'
+                f'Day {elapsed} of crisis (since {crisis_start.strftime("%b %-d, %Y")})'
+                f'</div>'
+            )
+    timeline_note_text = ""
+    if not has_anchored_dates:
+        timeline_note_text = (
+            ' <span style="font-size:0.75rem;color:var(--text-dim);">'
+            '(Timelines are hypothetical — no active Strait disruption anchored)</span>'
+        )
+
     return _collapsible(
         'Crisis Context: Supply Chain Cascade<span class="section-detail"> — Strait of Hormuz</span>',
         f"""<div class="card">
-{summary}
+{summary}{elapsed_badge}
 <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.5;">
 The Strait of Hormuz carries ~21% of global oil, ~25% of global LNG, and hosts the world's largest helium processing
 facility at Ras Laffan, Qatar. Disruption creates a cascading timeline of impacts far beyond oil prices.
-Statuses are evaluated from live market data each run.
+Statuses are evaluated from live market data each run.{timeline_note_text}
 </div>
 <div class="table-scroll table-edge-hint">
 <table>

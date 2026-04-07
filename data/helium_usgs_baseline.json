@@ -1,0 +1,27 @@
+{
+  "_source": "USGS Mineral Commodity Summaries — Helium",
+  "_url": "https://doi.org/10.5066/P13XCP3R",
+  "_last_updated": "2025-01-30",
+  "_notes": "Annual cache. Update when USGS publishes new edition (typically January). Prices are Grade-A helium.",
+  "year": 2024,
+  "grade_a_price_per_mcf_usd": 390,
+  "grade_a_price_per_m3_usd": 14,
+  "us_production_mmcf": 2100,
+  "qatar_production_mmcf": 2400,
+  "qatar_share_of_global_pct": 28,
+  "top_producers": [
+    {"country": "United States", "mmcf": 2100, "share_pct": 25},
+    {"country": "Qatar", "mmcf": 2400, "share_pct": 28},
+    {"country": "Algeria", "mmcf": 900, "share_pct": 11},
+    {"country": "Russia", "mmcf": 600, "share_pct": 7},
+    {"country": "Australia", "mmcf": 500, "share_pct": 6}
+  ],
+  "end_uses": {
+    "cryogenics_mri": "30%",
+    "semiconductor_fabs": "20%",
+    "fiber_optics": "13%",
+    "welding": "9%",
+    "other_industrial": "28%"
+  },
+  "strait_of_hormuz_exposure": "Qatar's Ras Laffan facility (world's largest helium plant, ~2.4 Bcf/yr) ships via Strait of Hormuz. Disruption removes ~28% of global supply with no short-term substitution."
+}

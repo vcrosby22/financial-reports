@@ -11,6 +11,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
     fred_api_key: str = ""
+    hormuz_api_key: str = ""
+    fda_api_key: str = ""
+    eia_api_key: str = ""
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""
