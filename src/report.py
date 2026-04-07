@@ -598,6 +598,10 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   min-width: 0; width: 100%; max-width: 100%;
 }}
 .col-m-hide {{ display: none !important; }}
+#macro table td:first-child,
+#macro table th:first-child {{ max-width: 7rem; word-break: break-word; }}
+#signals table td:nth-child(4),
+#signals table th:nth-child(4) {{ max-width: 8rem; word-break: break-word; white-space: normal; }}
 .kpi-row {{
   display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
   margin-bottom: 1.5rem;
@@ -684,6 +688,10 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .mobile-rotate-hint {{ display: none; }}
   .subtitle-detail {{ display: block; }}
   .col-m-hide {{ display: table-cell !important; }}
+  #macro table td:first-child,
+  #macro table th:first-child {{ max-width: none; }}
+  #signals table td:nth-child(4),
+  #signals table th:nth-child(4) {{ max-width: none; white-space: nowrap; }}
   .table-scroll.wide-min > table {{ min-width: 30rem; }}
   .opp-signal-grid {{ grid-template-columns: 1fr 1fr; }}
   .kpi-row {{ grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
@@ -1860,7 +1868,7 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
         methodology
         + f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table>
-<thead><tr><th>Indicator</th><th style="text-align:right;width:5.5rem;">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th style="width:4.5rem;">Signal</th><th class="col-m-hide">Assessment</th></tr></thead>
+<thead><tr><th>Indicator</th><th style="text-align:right;width:4.5rem;">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th style="width:3.5rem;">Signal</th><th class="col-m-hide">Assessment</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
