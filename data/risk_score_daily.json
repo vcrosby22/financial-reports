@@ -76,7 +76,7 @@
     },
     "2026-04-07": {
       "snapshot_date": "2026-04-07",
-      "ts_utc": "2026-04-07T21:48:33.020696+00:00",
+      "ts_utc": "2026-04-07T22:06:20.174288+00:00",
       "score": 100,
       "score_uncapped": 503,
       "overall_risk": "heavy_stress",
@@ -84,8 +84,8 @@
       "warning_count": 17,
       "leading_signal_count": 10,
       "source": "github_actions",
-      "github_sha": "42640b6027f1ff384fd7271288a00a7f778247c3",
-      "github_run_id": "24106012716"
+      "github_sha": "214048f269184217ec429cee091776722d91ba5b",
+      "github_run_id": "24106666055"
     }
   }
 }
