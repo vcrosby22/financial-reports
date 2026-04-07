@@ -600,32 +600,45 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 .col-m-hide {{ display: none !important; }}
 #macro table td:first-child,
 #macro table th:first-child {{ max-width: 7rem; word-break: break-word; }}
-/* Risk Signals: fixed layout on narrow viewports so Signal cap does not starve Detail */
+/* Risk Signals: fixed layout on narrow viewports; Severity must fit .tag (nowrap) — 20% was too narrow */
 #signals .table-scroll.wide-min > table {{
   min-width: 0 !important;
   width: 100%;
   max-width: 100%;
   table-layout: fixed;
 }}
+/* Sticky first col + narrow Severity caused badge to paint over Signal text on iOS */
+#signals .sticky-first-col table th:first-child,
+#signals .sticky-first-col table td:first-child {{
+  position: static !important;
+  left: auto !important;
+  box-shadow: none !important;
+  z-index: auto !important;
+}}
 #signals table td:nth-child(1),
 #signals table th:nth-child(1) {{
-  width: 20%;
-  vertical-align: top;
+  width: 7.25rem;
+  min-width: 7.25rem;
+  padding-right: 0.5rem;
+  vertical-align: middle;
+  box-sizing: border-box;
 }}
 #signals table td:nth-child(4),
 #signals table th:nth-child(4) {{
-  width: 28%;
+  width: 33%;
   word-break: break-word;
   overflow-wrap: break-word;
   white-space: normal;
+  vertical-align: middle;
 }}
 #signals table td:nth-child(5),
 #signals table th:nth-child(5) {{
-  width: 52%;
+  width: 50%;
   min-width: 0;
   word-break: break-word;
   overflow-wrap: break-word;
   white-space: normal;
+  vertical-align: middle;
 }}
 .kpi-row {{
   display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
@@ -721,8 +734,20 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
     max-width: none;
     table-layout: auto;
   }}
+  #signals .sticky-first-col table th:first-child,
+  #signals .sticky-first-col table td:first-child {{
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 2 !important;
+    background: var(--surface) !important;
+    box-shadow: 4px 0 10px -4px rgba(0, 0, 0, 0.5) !important;
+  }}
+  #signals .sticky-first-col table thead th:first-child {{
+    z-index: 4 !important;
+    background: var(--surface) !important;
+  }}
   #signals table td:nth-child(1),
-  #signals table th:nth-child(1) {{ width: auto; vertical-align: inherit; }}
+  #signals table th:nth-child(1) {{ width: auto; min-width: 0; vertical-align: inherit; }}
   #signals table td:nth-child(4),
   #signals table th:nth-child(4) {{ width: auto; white-space: normal; }}
   #signals table td:nth-child(5),
