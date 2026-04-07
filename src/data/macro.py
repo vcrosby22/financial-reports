@@ -125,6 +125,15 @@ def fetch_macro_data() -> MacroSnapshot | None:
     if obs_dates:
         snapshot.fred_observations_through = max(obs_dates)
 
+    n = len(snapshot.indicators)
+    if n == 0:
+        console.print(
+            "[yellow]FRED: 0 of "
+            f"{len(FRED_SERIES)} series loaded — check API key, network, and pip install fredapi.[/yellow]"
+        )
+    else:
+        console.print(f"  [dim]FRED: {n} macro indicators loaded.[/dim]")
+
     return snapshot
 
 

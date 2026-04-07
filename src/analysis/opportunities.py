@@ -459,7 +459,7 @@ def _screen_short(
 # --- Helpers ---
 
 def _is_macro_supportive(macro_data) -> bool:
-    if macro_data is None:
+    if macro_data is None or not macro_data.indicators:
         return False
     return (
         not macro_data.yield_curve_inverted
@@ -469,7 +469,7 @@ def _is_macro_supportive(macro_data) -> bool:
 
 
 def _is_macro_adverse(macro_data) -> bool:
-    if macro_data is None:
+    if macro_data is None or not macro_data.indicators:
         return False
     return macro_data.yield_curve_inverted or macro_data.credit_stress or macro_data.recession_signals >= 3
 

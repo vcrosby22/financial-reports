@@ -178,8 +178,10 @@ def assess_market_health(
 
     # Track data source completeness
     report.data_sources_present.append("technical")
-    if macro_data:
+    if macro_data and macro_data.indicators:
         report.data_sources_present.append("macro")
+    elif macro_data is not None:
+        report.data_sources_missing.append("macro (FRED: 0 indicators)")
     else:
         report.data_sources_missing.append("macro (FRED)")
     if fundamentals_data:
@@ -196,7 +198,7 @@ def assess_market_health(
     _check_treasury_signals(market_data, report)
 
     # Layer 2: Macroeconomic signals (leading)
-    if macro_data:
+    if macro_data and macro_data.indicators:
         _check_macro_signals(macro_data, report)
 
     # Layer 3: Fundamental signals (leading)
