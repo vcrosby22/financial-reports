@@ -600,14 +600,20 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 .col-m-hide {{ display: none !important; }}
 #macro table td:first-child,
 #macro table th:first-child {{ max-width: 7rem; word-break: break-word; }}
-/* Risk Signals: fixed layout on narrow viewports; Severity must fit .tag (nowrap) — 20% was too narrow */
+/* Risk Signals on narrow screens: WebKit miscomputes columns when .col-m-hide removes cells
+   from a fixed-layout table — badge paints over Signal. Flatten to block + CSS grid per row. */
 #signals .table-scroll.wide-min > table {{
   min-width: 0 !important;
   width: 100%;
   max-width: 100%;
-  table-layout: fixed;
+  display: block;
+  border-collapse: separate;
+  border-spacing: 0;
 }}
-/* Sticky first col + narrow Severity caused badge to paint over Signal text on iOS */
+#signals .table-scroll.wide-min > table thead,
+#signals .table-scroll.wide-min > table tbody {{
+  display: block;
+}}
 #signals .sticky-first-col table th:first-child,
 #signals .sticky-first-col table td:first-child {{
   position: static !important;
@@ -615,30 +621,54 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   box-shadow: none !important;
   z-index: auto !important;
 }}
-#signals table td:nth-child(1),
-#signals table th:nth-child(1) {{
-  width: 7.25rem;
-  min-width: 7.25rem;
-  padding-right: 0.5rem;
-  vertical-align: middle;
-  box-sizing: border-box;
+#signals thead tr {{
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 0.35rem 0.5rem;
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border);
 }}
-#signals table td:nth-child(4),
-#signals table th:nth-child(4) {{
-  width: 33%;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  white-space: normal;
-  vertical-align: middle;
+#signals thead th {{
+  display: block;
+  padding: 0.1rem 0 !important;
+  border-bottom: none !important;
 }}
-#signals table td:nth-child(5),
-#signals table th:nth-child(5) {{
-  width: 50%;
+#signals thead th:nth-child(1) {{ grid-column: 1; }}
+#signals thead th:nth-child(4) {{ grid-column: 2; min-width: 0; }}
+#signals thead th:nth-child(5) {{ grid-column: 3; min-width: 0; }}
+#signals tbody tr {{
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.65rem;
+  row-gap: 0.3rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--surface2);
+  align-items: start;
+}}
+#signals tbody td {{
+  display: block;
+  padding: 0 !important;
+  border-bottom: none !important;
+}}
+#signals tbody td:nth-child(1) {{ grid-column: 1; grid-row: 1; }}
+#signals tbody td:nth-child(4) {{
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   word-break: break-word;
   overflow-wrap: break-word;
-  white-space: normal;
-  vertical-align: middle;
+}}
+#signals tbody td:nth-child(5) {{
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }}
 .kpi-row {{
   display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
@@ -729,10 +759,48 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   #macro table td:first-child,
   #macro table th:first-child {{ max-width: none; }}
   #signals .table-scroll.wide-min > table {{
+    display: table !important;
     min-width: 30rem !important;
     width: max-content;
     max-width: none;
     table-layout: auto;
+  }}
+  #signals .table-scroll.wide-min > table thead {{
+    display: table-header-group !important;
+  }}
+  #signals .table-scroll.wide-min > table tbody {{
+    display: table-row-group !important;
+  }}
+  #signals thead tr,
+  #signals tbody tr {{
+    display: table-row !important;
+    grid-template-columns: unset;
+    gap: unset;
+    column-gap: unset;
+    row-gap: unset;
+    padding: unset;
+    margin: unset;
+    border: none;
+    align-items: unset;
+  }}
+  #signals thead th,
+  #signals tbody td {{
+    display: table-cell !important;
+    grid-column: unset;
+    grid-row: unset;
+  }}
+  #signals thead th {{
+    padding: 0.6rem 0.75rem !important;
+    border-bottom: 1px solid var(--border) !important;
+  }}
+  #signals tbody td {{
+    padding: 0.5rem 0.75rem !important;
+    border-bottom: 1px solid var(--surface2) !important;
+  }}
+  #signals tbody td:nth-child(5) {{
+    font-size: inherit;
+    color: inherit;
+    line-height: inherit;
   }}
   #signals .sticky-first-col table th:first-child,
   #signals .sticky-first-col table td:first-child {{
