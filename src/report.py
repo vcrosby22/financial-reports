@@ -1122,7 +1122,21 @@ def _section_kpi_cards(
     if vix and vix.get("price"):
         vix_val = vix["price"]
         vix_color = "#22c55e" if vix_val < 20 else "#eab308" if vix_val < 30 else "#f97316" if vix_val < 40 else "#ef4444"
-        cards.append(_kpi("VIX", f"{vix_val:.1f}", vix_color, "Fear Index"))
+        if vix_val < 15:
+            vix_context = "Calm — low worry"
+        elif vix_val < 20:
+            vix_context = "Normal range"
+        elif vix_val < 30:
+            vix_context = "Elevated — markets uneasy"
+        elif vix_val < 40:
+            vix_context = "High fear"
+        else:
+            vix_context = "Extreme fear / crisis"
+        vix_sub = (
+            f'Fear Index · <span style="font-weight:600;">{vix_context}</span>'
+            f'<br><span style="font-size:0.65rem;color:var(--text-dim);">Baseline: 15–20 is normal · &lt;15 calm · 30+ high fear · 40+ crisis</span>'
+        )
+        cards.append(_kpi("VIX", f"{vix_val:.1f}", vix_color, vix_sub))
 
     if oil and oil.get("price"):
         oil_color = "#22c55e" if oil["price"] < 80 else "#eab308" if oil["price"] < 100 else "#f97316" if oil["price"] < 130 else "#ef4444"
