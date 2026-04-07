@@ -600,8 +600,33 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 .col-m-hide {{ display: none !important; }}
 #macro table td:first-child,
 #macro table th:first-child {{ max-width: 7rem; word-break: break-word; }}
+/* Risk Signals: fixed layout on narrow viewports so Signal cap does not starve Detail */
+#signals .table-scroll.wide-min > table {{
+  min-width: 0 !important;
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}}
+#signals table td:nth-child(1),
+#signals table th:nth-child(1) {{
+  width: 20%;
+  vertical-align: top;
+}}
 #signals table td:nth-child(4),
-#signals table th:nth-child(4) {{ max-width: 8rem; word-break: break-word; white-space: normal; }}
+#signals table th:nth-child(4) {{
+  width: 28%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+}}
+#signals table td:nth-child(5),
+#signals table th:nth-child(5) {{
+  width: 52%;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+}}
 .kpi-row {{
   display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
   margin-bottom: 1.5rem;
@@ -690,8 +715,18 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .col-m-hide {{ display: table-cell !important; }}
   #macro table td:first-child,
   #macro table th:first-child {{ max-width: none; }}
+  #signals .table-scroll.wide-min > table {{
+    min-width: 30rem !important;
+    width: max-content;
+    max-width: none;
+    table-layout: auto;
+  }}
+  #signals table td:nth-child(1),
+  #signals table th:nth-child(1) {{ width: auto; vertical-align: inherit; }}
   #signals table td:nth-child(4),
-  #signals table th:nth-child(4) {{ max-width: none; white-space: nowrap; }}
+  #signals table th:nth-child(4) {{ width: auto; white-space: normal; }}
+  #signals table td:nth-child(5),
+  #signals table th:nth-child(5) {{ width: auto; min-width: 0; }}
   .table-scroll.wide-min > table {{ min-width: 30rem; }}
   .opp-signal-grid {{ grid-template-columns: 1fr 1fr; }}
   .kpi-row {{ grid-template-columns: repeat(3, 1fr); gap: 1rem; }}
@@ -710,6 +745,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 /* \u2500\u2500 Desktop (\u2265 1024px) \u2500\u2500 */
 @media (min-width: 1024px) {{
   .table-scroll.wide-min > table {{ min-width: 36rem; }}
+  #signals .table-scroll.wide-min > table {{ min-width: 36rem !important; }}
   .table-scroll.table-edge-hint {{ box-shadow: none; }}
   .table-scroll.table-edge-hint::after {{ display: none; }}
 }}
