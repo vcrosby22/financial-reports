@@ -618,6 +618,24 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   min-width: 0; width: 100%; max-width: 100%;
 }}
 .col-m-hide {{ display: none !important; }}
+/* Supply chain cascade — stacked cards on mobile */
+#supply-chain table {{ display: block; border-collapse: separate; }}
+#supply-chain thead {{ display: none; }}
+#supply-chain tbody {{ display: block; }}
+#supply-chain tbody tr {{
+  display: block; padding: 0.75rem 0;
+  border-bottom: 1px solid var(--surface2);
+}}
+#supply-chain tbody td {{
+  display: block; padding: 0.15rem 0 !important;
+  white-space: normal !important;
+}}
+#supply-chain tbody td:first-child {{
+  font-size: 0.75rem; color: var(--cyan); margin-bottom: 0.15rem;
+}}
+#supply-chain tbody td:last-child {{
+  margin-top: 0.3rem;
+}}
 #macro table td:first-child,
 #macro table th:first-child {{ max-width: 7rem; word-break: break-word; }}
 /* Risk Signals on narrow screens: WebKit miscomputes columns when .col-m-hide removes cells
@@ -776,6 +794,20 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .mobile-rotate-hint {{ display: none; }}
   .subtitle-detail {{ display: block; }}
   .col-m-hide {{ display: table-cell !important; }}
+  /* Supply chain cascade — restore table on tablet+ */
+  #supply-chain table {{ display: table; }}
+  #supply-chain thead {{ display: table-header-group; }}
+  #supply-chain tbody {{ display: table-row-group; }}
+  #supply-chain tbody tr {{
+    display: table-row; padding: 0; border-bottom: none;
+  }}
+  #supply-chain tbody td {{
+    display: table-cell; padding: 0.5rem 0.75rem !important;
+  }}
+  #supply-chain tbody td:first-child {{
+    font-size: inherit; color: inherit; margin-bottom: 0;
+  }}
+  #supply-chain tbody td:last-child {{ margin-top: 0; }}
   #macro table td:first-child,
   #macro table th:first-child {{ max-width: none; }}
   #signals .table-scroll.wide-min > table {{
@@ -2587,11 +2619,11 @@ def _section_supply_chain(cascade_stages: list | None = None) -> str:
                 evidence_html = f"<ul style='margin:0.25rem 0 0 1rem;padding:0;font-size:0.75rem;color:var(--text-dim);'>{evidence_items}</ul>"
 
             stage_rows.append(
-                f'<tr style="{bg}"><td style="white-space:nowrap;font-weight:600;">{escape(stage.timeframe)}</td>'
+                f'<tr style="{bg}"><td style="font-weight:600;">{escape(stage.timeframe)}</td>'
                 f"<td><strong>{escape(stage.name)}</strong><br>"
                 f"<span style='font-size:0.8rem;color:var(--text-dim);'>{escape(stage.description)}</span>"
                 f"{evidence_html}{timeline_note}{first_activated}</td>"
-                f"<td style='white-space:nowrap;'>{status_html}{meta_html}</td></tr>"
+                f"<td>{status_html}{meta_html}</td></tr>"
             )
     else:
         stage_rows = [
