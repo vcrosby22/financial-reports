@@ -351,8 +351,8 @@ def _build_html(
     backfill_daily_from_jsonl()
     daily_snapshots = list_daily_snapshots_chronological()
 
-    sections = []
-    sections.append(_section_kpi_cards(health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend))
+    # -- Build individual sections --
+    kpi_section = _section_kpi_cards(health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend)
     risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance, daily_snapshots, risk_trend)
     risk_inner += _snapshot_narrative(health, risk_trend)
     if risk_trend and risk_trend.has_any:
@@ -365,39 +365,91 @@ def _build_html(
     if risk_trend and risk_trend.delta_1d is not None:
         _d = risk_trend.delta_1d
         _ro_delta = f" ({_d:+d} vs prior day)"
-    sections.append(_collapsible(
+    risk_section = _collapsible(
         f'Risk Overview — Score {_ro_score}{_ro_delta} · <span style="color:{risk_color}">{display_label(health.overall_risk)}</span>',
         risk_inner,
-        open_default=False,
+        open_default=True,
         section_id="risk",
-    ))
+    )
+
     sp500_data = next((i for i in indices if i.get("ticker") == "^GSPC"), None)
     sp500_price = sp500_data["price"] if sp500_data and sp500_data.get("price") else None
     cascade_active = sum(1 for s in (cascade_stages or []) if getattr(s, 'status', '') == "active")
-    sections.append(_section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate))
-    sections.append(_section_supply_chain(cascade_stages))
-    sections.append(_section_score_attribution(health))
-    sections.append(_section_risk_legend(health))
-    sections.append(_section_market_table(market_data))
-    if macro_data and macro_data.indicators:
-        sections.append(_section_macro(macro_data))
-        inflation_html = _section_inflation(macro_data)
-        if inflation_html:
-            sections.append(inflation_html)
+
+    market_section = _section_market_table(market_data)
+    fundamentals_section = ""
     if fundamentals:
         name_lookup = {item["ticker"]: item.get("name", item["ticker"])
                        for cat in market_data.values() if isinstance(cat, list)
                        for item in cat if isinstance(item, dict) and "ticker" in item}
-        sections.append(_section_fundamentals(fundamentals, name_lookup))
-    if opportunities:
-        sections.append(_section_opportunities(opportunities, health))
-    sections.append(_section_signals(health))
-    sections.append(_section_bond_bank_plain_english(macro_data))
-    if trend_context:
-        sections.append(_section_trend_context(trend_context))
-    sections.append(_section_authoritative_sources())
+        fundamentals_section = _section_fundamentals(fundamentals, name_lookup)
 
-    body = "\n".join(sections)
+    macro_parts: list[str] = []
+    if macro_data and macro_data.indicators:
+        macro_parts.append(_section_macro(macro_data))
+        inflation_html = _section_inflation(macro_data)
+        if inflation_html:
+            macro_parts.append(inflation_html)
+    macro_parts.append(_section_bond_bank_plain_english(macro_data))
+
+    opportunities_section = ""
+    if opportunities:
+        opportunities_section = _section_opportunities(opportunities, health)
+
+    signals_parts: list[str] = [
+        _section_signals(health),
+        _section_score_attribution(health),
+        _section_risk_legend(health),
+    ]
+
+    crisis_parts: list[str] = [
+        _section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate),
+        _section_supply_chain(cascade_stages),
+    ]
+
+    extra_parts: list[str] = []
+    if trend_context:
+        extra_parts.append(_section_trend_context(trend_context))
+    extra_parts.append(_section_authoritative_sources())
+
+    # -- Assemble tab panels --
+    panels: list[str] = []
+    panels.append('<div class="tab-panel active" data-tab="overview">')
+    panels.append(kpi_section)
+    panels.append(risk_section)
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="markets">')
+    panels.append(market_section)
+    if fundamentals_section:
+        panels.append(fundamentals_section)
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="macro">')
+    panels.extend(macro_parts)
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="opportunities">')
+    if opportunities_section:
+        panels.append(opportunities_section)
+    else:
+        panels.append('<div class="card" style="color:var(--text-dim);">No opportunities identified in current conditions.</div>')
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="signals">')
+    panels.extend(signals_parts)
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="crisis">')
+    panels.extend(crisis_parts)
+    panels.append('</div>')
+
+    if extra_parts:
+        panels.append('<div class="tab-panel" data-tab="more">')
+        panels.extend(extra_parts)
+        panels.append('</div>')
+
+    body = "\n".join(panels)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -758,6 +810,12 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   min-height: 44px; display: inline-flex; align-items: center;
 }}
 .nav-bar a:hover {{ background: var(--surface); }}
+.nav-bar a.active {{
+  background: var(--surface2); color: var(--text);
+  border-bottom: 2px solid var(--cyan);
+}}
+.tab-panel {{ display: none; }}
+.tab-panel.active {{ display: block; }}
 
 /* \u2500\u2500 Foldable / mini-tablet (\u2265 600px) \u2500\u2500 */
 @media (min-width: 600px) {{
@@ -775,6 +833,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 
 /* \u2500\u2500 Tablet (\u2265 768px) \u2500\u2500 */
 @media (min-width: 768px) {{
+  .tab-panel {{ display: block !important; }}
   .section-anchor {{ scroll-margin-top: 4.5rem; }}
   h2 {{ margin: 2rem 0 1rem; }}
   .card {{ padding: 1.25rem; }}
@@ -909,16 +968,13 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 </div>
 </div>
 
-<div class="nav-bar">
-  <a href="#risk">Risk</a>
-  <a href="#markets">Markets</a>
-  <a href="#macro">Macro</a>
-  <a href="#fundamentals">Fundamentals</a>
-  <a href="#opportunities">Opportunities</a>
-  <a href="#signals">Signals</a>
-  <a href="#bonds-banks">Bonds &amp; Banks</a>
-  <a href="#historical">Historical</a>
-  <a href="#supply-chain">Supply Chain</a>
+<div class="nav-bar" role="tablist">
+  <a href="#overview" data-tab-target="overview" role="tab" class="active">Overview</a>
+  <a href="#markets" data-tab-target="markets" role="tab">Markets</a>
+  <a href="#macro" data-tab-target="macro" role="tab">Macro</a>
+  <a href="#opportunities" data-tab-target="opportunities" role="tab">Opportunities</a>
+  <a href="#signals" data-tab-target="signals" role="tab">Signals</a>
+  <a href="#crisis" data-tab-target="crisis" role="tab">Crisis</a>
 </div>
 
 {body}
@@ -949,38 +1005,58 @@ Generated by Financial Agent v0.2
     " (your device clock — not a market quote time).";
 }})();
 (function () {{
-  function openAndScroll(id) {{
-    var target = document.getElementById(id);
-    if (!target) return;
-    var allSections = document.querySelectorAll("details.section-collapse");
-    for (var i = 0; i < allSections.length; i++) {{
-      allSections[i].open = false;
+  var panels = document.querySelectorAll(".tab-panel");
+  var tabs = document.querySelectorAll(".nav-bar a[data-tab-target]");
+  var isMobile = function () {{ return window.innerWidth < 768; }};
+
+  function activateTab(tabName, scroll) {{
+    for (var i = 0; i < tabs.length; i++) {{
+      if (tabs[i].getAttribute("data-tab-target") === tabName) {{
+        tabs[i].classList.add("active");
+      }} else {{
+        tabs[i].classList.remove("active");
+      }}
     }}
-    if (target.tagName === "DETAILS") {{
-      target.open = true;
+    if (isMobile()) {{
+      for (var j = 0; j < panels.length; j++) {{
+        if (panels[j].getAttribute("data-tab") === tabName) {{
+          panels[j].classList.add("active");
+        }} else {{
+          panels[j].classList.remove("active");
+        }}
+      }}
+      window.scrollTo(0, 0);
+    }} else {{
+      var target = document.querySelector('.tab-panel[data-tab="' + tabName + '"]');
+      if (target && scroll) {{
+        var first = target.querySelector(".section-collapse,.section-anchor");
+        var scrollTarget = first || target;
+        requestAnimationFrame(function () {{
+          scrollTarget.scrollIntoView({{ behavior: "smooth", block: "start" }});
+        }});
+      }}
     }}
-    requestAnimationFrame(function () {{
-      requestAnimationFrame(function () {{
-        target.scrollIntoView({{ behavior: "smooth", block: "start" }});
-      }});
-    }});
   }}
-  var links = document.querySelectorAll(".nav-bar a[href^='#']");
-  for (var i = 0; i < links.length; i++) {{
-    links[i].addEventListener("click", function (e) {{
+
+  for (var i = 0; i < tabs.length; i++) {{
+    tabs[i].addEventListener("click", function (e) {{
       e.preventDefault();
-      var id = this.getAttribute("href").slice(1);
-      history.pushState(null, "", "#" + id);
-      openAndScroll(id);
+      var tabName = this.getAttribute("data-tab-target");
+      history.pushState(null, "", "#" + tabName);
+      activateTab(tabName, true);
     }});
   }}
+
   window.addEventListener("popstate", function () {{
     var hash = window.location.hash;
-    if (hash && hash.length > 1) openAndScroll(decodeURIComponent(hash.slice(1)));
+    if (hash && hash.length > 1) {{
+      activateTab(decodeURIComponent(hash.slice(1)), true);
+    }}
   }});
+
   var initHash = window.location.hash;
   if (initHash && initHash.length > 1) {{
-    openAndScroll(decodeURIComponent(initHash.slice(1)));
+    activateTab(decodeURIComponent(initHash.slice(1)), false);
   }}
 }})();
 </script>
@@ -1491,7 +1567,7 @@ def _section_projection(proj: object) -> str:
     color = getattr(proj, 'color_var', 'var(--text-dim)')
     label = getattr(proj, 'label', 'STABLE')
 
-    icon = {"worsening": "&#9650;", "stable": "&#9644;", "improving": "&#9660;"}.get(direction, "&#9644;")
+    icon = {"worsening": "&#9650;", "easing": "&#9660;", "stressed_holding": "&#9644;", "stable": "&#9644;"}.get(direction, "&#9644;")
     conf_pct = f"{confidence:.0%}"
 
     factor_html = ""
@@ -1535,38 +1611,34 @@ def _section_risk_score_reader_context(health: MarketHealthReport, risk_trend: R
             movement_lines.append(f"One month ago it was <strong>{prev_m}</strong>.")
     movement_html = " ".join(movement_lines) if movement_lines else "No prior snapshot is available yet for comparison."
 
-    return f"""
-<div id="risk-explainer" class="card" style="border-left:3px solid var(--cyan);margin-bottom:1.25rem;">
-<h3 style="margin:0 0 0.5rem 0;font-size:0.95rem;color:var(--text);">Understanding this risk score</h3>
-<div style="font-size:0.82rem;color:var(--text-dim);line-height:1.6;">
-<p style="margin:0 0 0.65rem 0;">
-<strong style="color:var(--text);">1. Where the score is now</strong> &mdash;
-Today&rsquo;s raw risk score is <strong>{uncapped}</strong>.
-{movement_html}
-The <strong>score number and its direction</strong> are more informative than the named level when conditions stay at the top of the scale.
-</p>
-<p style="margin:0 0 0.65rem 0;">
-<strong style="color:var(--text);">2. How we calculate it</strong> &mdash;
-Each detected signal adds <strong>points</strong> (leading macro/fundamental signals are weighted <strong>1.5&times;</strong> vs lagging technical signals).
-Signals span VIX, drawdowns, death crosses, macro (FRED), fundamentals, and breadth.
-The <strong>raw total</strong> is <strong>{uncapped}</strong>; we also show a <strong>0&ndash;100 capped</strong> score ({capped}) for side-by-side comparison.
-</p>
-<p style="margin:0 0 0.65rem 0;">
-<strong style="color:var(--text);">3. What the named level means</strong> &mdash;
-The level <strong style="color:var(--text);">{level}</strong> maps the raw score to a bucket on this model&rsquo;s scale
-(Low&nbsp;&rarr;&nbsp;Moderate&nbsp;&rarr;&nbsp;Elevated&nbsp;&rarr;&nbsp;High&nbsp;&rarr;&nbsp;Critical&nbsp;&rarr;&nbsp;Severe&nbsp;&rarr;&nbsp;Extreme&nbsp;&rarr;&nbsp;Catastrophic).
-It tells you <strong>how many signals are stacking</strong>, not what will happen next.
-It is a <strong>model severity label</strong>, not a forecast, not a bank rating, and not personalized advice.
-</p>
-<p style="margin:0;">
-<strong style="color:var(--text);">4. Snapshots and history</strong> &mdash;
-Each weekday build saves a daily snapshot.
-The <strong>trend chips</strong> above show how today&rsquo;s score compares to prior snapshots (1&nbsp;day, 1&nbsp;week, 1&nbsp;month).
-History accumulates automatically across builds so you can track direction over time.
-</p>
-</div>
-</div>
-"""
+    explanation_content = (
+        f'<p style="margin:0 0 0.65rem 0;">'
+        f'<strong style="color:var(--text);">1. Where the score is now</strong> &mdash; '
+        f'Today&rsquo;s raw risk score is <strong>{uncapped}</strong>. '
+        f'{movement_html} '
+        f'The <strong>score number and its direction</strong> are more informative than the named level when conditions stay at the top of the scale.'
+        f'</p>'
+        f'<p style="margin:0 0 0.65rem 0;">'
+        f'<strong style="color:var(--text);">2. How we calculate it</strong> &mdash; '
+        f'Each detected signal adds <strong>points</strong> (leading macro/fundamental signals are weighted <strong>1.5&times;</strong> vs lagging technical signals). '
+        f'Signals span VIX, drawdowns, death crosses, macro (FRED), fundamentals, and breadth. '
+        f'The <strong>raw total</strong> is <strong>{uncapped}</strong>; we also show a <strong>0&ndash;100 capped</strong> score ({capped}) for side-by-side comparison.'
+        f'</p>'
+        f'<p style="margin:0 0 0.65rem 0;">'
+        f'<strong style="color:var(--text);">3. What the named level means</strong> &mdash; '
+        f'The level <strong style="color:var(--text);">{level}</strong> maps the raw score to a bucket on this model&rsquo;s scale '
+        f'(Low&nbsp;&rarr;&nbsp;Moderate&nbsp;&rarr;&nbsp;Elevated&nbsp;&rarr;&nbsp;High&nbsp;&rarr;&nbsp;Critical&nbsp;&rarr;&nbsp;Severe&nbsp;&rarr;&nbsp;Extreme&nbsp;&rarr;&nbsp;Catastrophic). '
+        f'It tells you <strong>how many signals are stacking</strong>, not what will happen next. '
+        f'It is a <strong>model severity label</strong>, not a forecast, not a bank rating, and not personalized advice.'
+        f'</p>'
+        f'<p style="margin:0;">'
+        f'<strong style="color:var(--text);">4. Snapshots and history</strong> &mdash; '
+        f'Each weekday build saves a daily snapshot. '
+        f'The <strong>trend chips</strong> above show how today&rsquo;s score compares to prior snapshots (1&nbsp;day, 1&nbsp;week, 1&nbsp;month). '
+        f'History accumulates automatically across builds so you can track direction over time.'
+        f'</p>'
+    )
+    return _explanation_detail("Understanding this risk score", explanation_content)
 
 
 def _section_risk_legend(health: MarketHealthReport) -> str:
@@ -1652,10 +1724,6 @@ Understanding Risk Levels &amp; How They Are Calculated
 
 <div style="border-top:1px solid var(--border);padding-top:1rem;margin-bottom:1.25rem;">
 <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem;color:var(--text);">How the Score Is Calculated</div>
-<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.7;">
-The risk score is a number from <strong style="color:var(--text);">0 to 100</strong> (hard-capped — it can never exceed 100).
-Every detected risk signal adds points based on its severity:<br>
-</div>
 
 <div class="table-scroll wide-min sticky-first-col table-edge-hint">
 <table style="width:auto;margin:0.75rem 0 0.75rem 0.5rem;font-size:0.8rem;">
@@ -1681,22 +1749,24 @@ Every detected risk signal adds points based on its severity:<br>
 </table>
 </div>
 
-<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.7;">
-All signals add up, then the total is capped at 100.<br><br>
-<strong style="color:var(--text);">Why leading indicators count more:</strong>
-<strong>Leading indicators</strong> (macro data, earnings revisions, insider activity) <em>predict</em> future conditions — they get 1.5× weight.
-<strong>Lagging indicators</strong> (RSI, moving averages, price drops) <em>confirm</em> what already happened — important but less predictive.<br><br>
-<strong style="color:var(--text);">Three data layers are checked:</strong><br>
-<span style="margin-left:1rem;">1. <strong>Technical</strong> — price, volume, momentum, moving averages (lagging)</span><br>
-<span style="margin-left:1rem;">2. <strong>Macro</strong> — FRED economic data: yield curve, credit spreads, unemployment, consumer confidence (leading)</span><br>
-<span style="margin-left:1rem;">3. <strong>Fundamental</strong> — earnings revisions, insider activity, analyst targets, financial health (leading)</span><br><br>
-<strong style="color:var(--text);">Breadth and watchlists:</strong> Technical signals still scale with how many tickers fire
-(e.g. many RSI warnings). <strong>Fundamental</strong> impacts use <strong>one breadth row</strong> each for EPS deterioration,
-insider selling, and distress — scaled sublinearly so a large watchlist does not automatically max the score.<br><br>
-<strong style="color:var(--text);">Example:</strong> A score of 85 (CRITICAL) usually means several severe signals stacked before the 100 cap
-—not a single soft datapoint.
-A single leading critical macro signal alone is about 25–37 points (often <strong>MODERATE</strong> bucket).
-</div>
+""" + _explanation_detail(
+    "Scoring methodology — how signals add up",
+    'The risk score is a number from <strong>0 to 100</strong> (hard-capped). '
+    'All signals add up, then the total is capped at 100.<br><br>'
+    '<strong style="color:var(--text);">Why leading indicators count more:</strong> '
+    '<strong>Leading indicators</strong> (macro data, earnings revisions, insider activity) <em>predict</em> future conditions &mdash; they get 1.5&times; weight. '
+    '<strong>Lagging indicators</strong> (RSI, moving averages, price drops) <em>confirm</em> what already happened &mdash; important but less predictive.<br><br>'
+    '<strong style="color:var(--text);">Three data layers are checked:</strong><br>'
+    '<span style="margin-left:1rem;">1. <strong>Technical</strong> &mdash; price, volume, momentum, moving averages (lagging)</span><br>'
+    '<span style="margin-left:1rem;">2. <strong>Macro</strong> &mdash; FRED economic data: yield curve, credit spreads, unemployment, consumer confidence (leading)</span><br>'
+    '<span style="margin-left:1rem;">3. <strong>Fundamental</strong> &mdash; earnings revisions, insider activity, analyst targets, financial health (leading)</span><br><br>'
+    '<strong style="color:var(--text);">Breadth and watchlists:</strong> Technical signals still scale with how many tickers fire '
+    '(e.g. many RSI warnings). <strong>Fundamental</strong> impacts use <strong>one breadth row</strong> each for EPS deterioration, '
+    'insider selling, and distress &mdash; scaled sublinearly so a large watchlist does not automatically max the score.<br><br>'
+    '<strong style="color:var(--text);">Example:</strong> A score of 85 (CRITICAL) usually means several severe signals stacked before the 100 cap '
+    '&mdash; not a single soft datapoint. '
+    'A single leading critical macro signal alone is about 25&ndash;37 points (often <strong>MODERATE</strong> bucket).',
+) + """
 </div>
 
 <div style="border-top:1px solid var(--border);padding-top:1rem;">
@@ -2048,14 +2118,11 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
         summary_parts.append('<span style="color:var(--green);">all stable</span>')
     summary = " — " + ", ".join(summary_parts)
 
-    methodology = (
-        '<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.45;margin-bottom:0.75rem;'
-        'padding:0.55rem 0.65rem;background:var(--surface2);border-radius:0.5rem;border:1px solid var(--border);">'
-        "<strong style=\"color:var(--text);\">Data vs. narrative.</strong> "
+    methodology = _explanation_detail(
+        "Data vs. narrative — methodology",
         "Table values are official FRED series. Category groupings label what kind of signal each block represents. "
         "Signals and the assessment column are automated rules for scan context — not investment advice, not forecasts, "
-        "not regulatory ratings, and (for banking rows) not institution-level health."
-        "</div>"
+        "not regulatory ratings, and (for banking rows) not institution-level health.",
     )
 
     return _collapsible(
@@ -2176,20 +2243,17 @@ def _section_inflation(macro_data: MacroSnapshot) -> str:
     else:
         summary = ' — <span style="color:var(--green);">contained</span>'
 
-    methodology = (
-        '<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.45;margin-bottom:0.75rem;'
-        'padding:0.55rem 0.65rem;background:var(--surface2);border-radius:0.5rem;border:1px solid var(--border);">'
-        '<strong style="color:var(--text);">Where inflation hits hardest.</strong> '
-        'CPI components reveal which categories are driving headline inflation. '
-        'Shelter (~36% of CPI) is the stickiest; food and energy are the most volatile. '
-        'Expectations measures show whether inflation is becoming self-reinforcing. '
-        'YoY% is computed from the 12-month FRED data window. All data from official BLS/Fed sources.'
-        '</div>'
+    methodology = _explanation_detail(
+        "Where inflation hits hardest — methodology",
+        "CPI components reveal which categories are driving headline inflation. "
+        "Shelter (~36% of CPI) is the stickiest; food and energy are the most volatile. "
+        "Expectations measures show whether inflation is becoming self-reinforcing. "
+        "YoY% is computed from the 12-month FRED data window. All data from official BLS/Fed sources.",
     )
 
     return _collapsible(
         f"Consumer Inflation Breakdown{summary}",
-        methodology + gauge_html + comp_html + exp_html,
+        gauge_html + comp_html + exp_html + methodology,
         section_id="inflation",
     )
 
@@ -2262,7 +2326,7 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
 
     conf_color_map = {"high": "#22c55e", "medium": "#eab308", "low": "#ef4444"}
 
-    def _opp_card(opp: Opportunity) -> str:
+    def _opp_row(opp: Opportunity) -> str:
         rc = _risk_color(opp.risk_score)
         cc = conf_color_map.get(opp.confidence, "#6b7280")
         direction_icon = "&#9650;" if opp.direction == "long" else "&#9660;"
@@ -2270,48 +2334,49 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
 
         signals_for_html = "".join(f"<li>{escape(s)}</li>" for s in opp.signals_for)
         signals_against_html = "".join(f"<li>{escape(s)}</li>" for s in opp.signals_against)
+        key_signal = escape(opp.signals_for[0]) if opp.signals_for else "—"
 
-        return f"""
-<div class="card" style="border-left:3px solid {rc};">
-  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem 0.75rem;">
-      <span style="font-size:1.3rem;color:{direction_color};">{direction_icon}</span>
-      <span style="font-size:1.1rem;font-weight:700;">{escape(opp.ticker)}</span>
-      <span style="font-size:0.85rem;color:var(--text-dim);">{escape(opp.name)}</span>
-      <span class="tag tag-{"strong" if opp.direction == "long" else "critical"}">{opp.direction.upper()}</span>
-      <span style="font-size:0.8rem;color:var(--text-dim);">{opp.horizon_label}</span>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:0.35rem 0.75rem;align-items:center;">
-      <span style="font-size:0.8rem;">Risk: <strong style="color:{rc};">{opp.risk_score}/10 ({opp.risk_label})</strong></span>
-      <span style="font-size:0.8rem;">Confidence: <strong style="color:{cc};">{opp.confidence.upper()}</strong></span>
-    </div>
-  </div>
+        detail = (
+            f'<div style="padding:0.75rem;border-top:1px solid var(--border);background:var(--surface);">'
+            f'<div style="font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;">{escape(opp.thesis)}</div>'
+            f'<div class="opp-signal-grid">'
+            f'<div>'
+            f'<div style="font-size:0.75rem;font-weight:600;color:var(--green);margin-bottom:0.3rem;">SIGNALS FOR</div>'
+            f'<ul style="font-size:0.8rem;color:var(--text-dim);margin:0;padding-left:1.2rem;line-height:1.6;">{signals_for_html}</ul>'
+            f'</div>'
+            f'<div>'
+            f'<div style="font-size:0.75rem;font-weight:600;color:var(--red);margin-bottom:0.3rem;">SIGNALS AGAINST</div>'
+            f'<ul style="font-size:0.8rem;color:var(--text-dim);margin:0;padding-left:1.2rem;line-height:1.6;">{signals_against_html if signals_against_html else "<li>None detected</li>"}</ul>'
+            f'</div>'
+            f'</div>'
+            f'<div style="background:var(--surface2);border-radius:0.5rem;padding:0.6rem 0.75rem;margin:0.5rem 0;">'
+            f'<span style="font-size:0.75rem;font-weight:600;color:var(--red);">WHAT COULD GO WRONG:</span>'
+            f'<span style="font-size:0.8rem;color:var(--text-dim);"> {escape(opp.risks)}</span>'
+            f'</div>'
+            f'<div style="font-size:0.8rem;color:var(--text-dim);">'
+            f'Position sizing: <strong>{escape(opp.position_sizing)}</strong>'
+            f'</div>'
+            f'</div>'
+        )
 
-  <div style="font-size:0.85rem;line-height:1.6;margin-bottom:0.75rem;">{escape(opp.thesis)}</div>
+        return (
+            f'<details style="border:1px solid var(--border);border-radius:0.5rem;margin-bottom:0.5rem;overflow:clip;">'
+            f'<summary style="cursor:pointer;padding:0.6rem 0.75rem;display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem 0.75rem;'
+            f'background:var(--surface);list-style:none;min-height:44px;">'
+            f'<span style="color:{direction_color};font-size:0.9rem;">{direction_icon}</span>'
+            f'<strong style="font-size:0.95rem;">{escape(opp.ticker)}</strong>'
+            f'<span class="col-m-hide" style="font-size:0.8rem;color:var(--text-dim);">{escape(opp.name)}</span>'
+            f'<span style="font-size:0.75rem;color:var(--text-dim);">{opp.horizon_label}</span>'
+            f'<span style="font-size:0.8rem;">Risk: <strong style="color:{rc};">{opp.risk_score}/10</strong></span>'
+            f'<span style="font-size:0.8rem;">Conf: <strong style="color:{cc};">{opp.confidence.upper()}</strong></span>'
+            f'<span class="col-m-hide" style="font-size:0.78rem;color:var(--text-dim);flex:1;min-width:8rem;text-align:right;">{key_signal}</span>'
+            f'</summary>'
+            f'{detail}'
+            f'</details>'
+        )
 
-  <div class="opp-signal-grid">
-    <div>
-      <div style="font-size:0.75rem;font-weight:600;color:var(--green);margin-bottom:0.3rem;">SIGNALS FOR</div>
-      <ul style="font-size:0.8rem;color:var(--text-dim);margin:0;padding-left:1.2rem;line-height:1.6;">{signals_for_html}</ul>
-    </div>
-    <div>
-      <div style="font-size:0.75rem;font-weight:600;color:var(--red);margin-bottom:0.3rem;">SIGNALS AGAINST</div>
-      <ul style="font-size:0.8rem;color:var(--text-dim);margin:0;padding-left:1.2rem;line-height:1.6;">{signals_against_html if signals_against_html else "<li>None detected</li>"}</ul>
-    </div>
-  </div>
-
-  <div style="background:var(--surface2);border-radius:0.5rem;padding:0.6rem 0.75rem;margin-bottom:0.5rem;">
-    <span style="font-size:0.75rem;font-weight:600;color:var(--red);">WHAT COULD GO WRONG:</span>
-    <span style="font-size:0.8rem;color:var(--text-dim);"> {escape(opp.risks)}</span>
-  </div>
-
-  <div style="font-size:0.8rem;color:var(--text-dim);">
-    Position sizing: <strong>{escape(opp.position_sizing)}</strong>
-  </div>
-</div>"""
-
-    long_cards = "".join(_opp_card(o) for o in longs) if longs else '<div class="card" style="color:var(--text-dim);">No long opportunities identified in current conditions.</div>'
-    short_cards = "".join(_opp_card(o) for o in shorts) if shorts else '<div class="card" style="color:var(--text-dim);">No short opportunities identified in current conditions.</div>'
+    long_cards = "".join(_opp_row(o) for o in longs) if longs else '<div class="card" style="color:var(--text-dim);">No long opportunities identified in current conditions.</div>'
+    short_cards = "".join(_opp_row(o) for o in shorts) if shorts else '<div class="card" style="color:var(--text-dim);">No short opportunities identified in current conditions.</div>'
 
     market_risk_color = {
         "low": "var(--green)", "moderate": "var(--yellow)", "elevated": "var(--orange)",
@@ -2323,26 +2388,27 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
     short_count = len(shorts)
     summary = f' — <span style="color:var(--green);">{long_count} long</span>, <span style="color:var(--red);">{short_count} short</span>'
 
+    disclaimer_content = (
+        '<strong style="color:var(--yellow);">Important:</strong> Opportunities are ranked by risk-adjusted potential. '
+        'Higher expected return generally comes with higher risk — there is no such thing as "guaranteed low risk, high yield." '
+        'Every opportunity lists what could go wrong. Position sizing reflects the risk level. '
+        'This is analysis for educational purposes, not financial advice. '
+        f'Market risk is currently <strong style="color:{market_risk_color};">{display_label(health.overall_risk)}</strong>'
+        ' — factor this into all decisions.'
+    )
+    short_explainer = (
+        'Short selling means profiting from price declines. It carries <strong>unlimited loss risk</strong> — if the stock rises instead of falls, '
+        'losses are theoretically uncapped. Max position: 1% of portfolio with a defined buy-stop.'
+    )
+
     content = f"""
-<div class="card" style="background:var(--surface2);border-color:var(--yellow);margin-bottom:1rem;">
-<div style="font-size:0.8rem;color:var(--text-dim);line-height:1.6;">
-<strong style="color:var(--yellow);">Important:</strong> Opportunities are ranked by risk-adjusted potential.
-Higher expected return generally comes with higher risk — there is no such thing as "guaranteed low risk, high yield."
-Every opportunity lists what could go wrong. Position sizing reflects the risk level.
-This is analysis for educational purposes, not financial advice.
-Market risk is currently <strong style="color:{market_risk_color};">{display_label(health.overall_risk)}</strong>
- — factor this into all decisions.
-</div>
-</div>
+{_explanation_detail("Disclaimers and methodology", disclaimer_content)}
 
 <h3 style="color:var(--green);font-size:0.95rem;margin:1.25rem 0 0.75rem;">&#9650; Long Opportunities (Buy)</h3>
 {long_cards}
 
 <h3 style="color:var(--red);font-size:0.95rem;margin:1.25rem 0 0.75rem;">&#9660; Short Opportunities</h3>
-<div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.75rem;padding:0.5rem;background:var(--surface2);border-radius:0.5rem;">
-Short selling means profiting from price declines. It carries <strong>unlimited loss risk</strong> — if the stock rises instead of falls,
-losses are theoretically uncapped. Max position: 1% of portfolio with a defined buy-stop.
-</div>
+{_explanation_detail("What is short selling?", short_explainer)}
 {short_cards}"""
 
     return _collapsible(
@@ -2527,8 +2593,11 @@ This is not a prediction — it shows where similar historical crises ended.
 </div>
 </div>"""
 
+    base_decline_hint = ""
+    if bottom_estimate and hasattr(bottom_estimate, 'base_decline'):
+        base_decline_hint = f", base case {bottom_estimate.base_decline:+.1f}%"
     return _collapsible(
-        f'Crisis Context: Historical Parallels — {decline_pct:+.1f}%<span class="section-detail">, strongest overlap: {escape(match_name)} ({best_overlap}/{total_f} factors)</span>',
+        f'Crisis Context: Historical Parallels — {decline_pct:+.1f}%{base_decline_hint}<span class="section-detail">, nearest analog: {escape(match_name)} ({best_overlap}/{total_f} factors)</span>',
         f"""<div class="card">
 {crisis_dna_html}
 {bottom_html}
@@ -2552,16 +2621,18 @@ This is not a prediction — it shows where similar historical crises ended.
 </tbody>
 </table>
 </div>
-<div style="margin-top:0.75rem;font-size:0.78rem;color:var(--text-dim);line-height:1.5;">
-<strong>How matching works:</strong> Each crash is tagged with causal factors (commodity shock, geopolitical, etc.) based on
-historical sources (IMF, NBER, Federal Reserve History). The "Match" column shows how many of 2026's active factors
-overlap with each historical crash. Rankings update dynamically as conditions change.
-</div>
-<div style="margin-top:0.75rem;font-size:0.85rem;color:var(--text-dim);line-height:1.6;">
-<strong>Key finding:</strong> Across 8 major US crashes (1907-2020), the market recovered every time.
-The only crash where early withdrawal would have been correct was 1929 — under conditions (no FDIC, no SEC, no Fed backstop)
-that cannot recur in the modern financial system. Average oil-shock recovery: {comparison.get("avg_oil_crash_recovery_months", 0):.0f} months.
-</div>
+{_explanation_detail(
+    "How matching works — methodology",
+    "Each crash is tagged with causal factors (commodity shock, geopolitical, etc.) based on "
+    "historical sources (IMF, NBER, Federal Reserve History). The &ldquo;Match&rdquo; column shows how many of 2026&rsquo;s active factors "
+    "overlap with each historical crash. Rankings update dynamically as conditions change.",
+)}
+{_explanation_detail(
+    "Key finding — historical recovery",
+    "Across 8 major US crashes (1907-2020), the market recovered every time. "
+    "The only crash where early withdrawal would have been correct was 1929 &mdash; under conditions (no FDIC, no SEC, no Fed backstop) "
+    f"that cannot recur in the modern financial system. Average oil-shock recovery: {comparison.get('avg_oil_crash_recovery_months', 0):.0f} months.",
+)}
 </div>""",
         section_id="historical",
     )
@@ -2657,15 +2728,25 @@ def _section_supply_chain(cascade_stages: list | None = None) -> str:
             '(Timelines are hypothetical — no active Strait disruption anchored)</span>'
         )
 
+    total_stages = len(cascade_stages or [])
+    sc_severity = "Broad cascade" if active_count >= 3 else "Building" if active_count >= 2 else "Monitoring" if active_count >= 1 else "Inactive"
+    sc_summary = f" — {active_count}/{total_stages} stages active, {sc_severity}" if cascade_stages else ""
+
+    intro_prose = (
+        "The Strait of Hormuz carries ~21% of global oil, ~25% of global LNG, and hosts the world's largest helium processing "
+        "facility at Ras Laffan, Qatar. Disruption creates a cascading timeline of impacts far beyond oil prices. "
+        f"Statuses are evaluated from live market data each run.{timeline_note_text}"
+    )
+    why_matters = (
+        "The 1973 oil crisis caused a 48% market decline and 8-year recovery. "
+        "The current situation is broader &mdash; it affects energy, semiconductors, food, and pharmaceuticals simultaneously. "
+        "Historical parallel suggests a longer recovery timeline than a pure oil shock."
+    )
+
     return _collapsible(
-        'Crisis Context: Supply Chain Cascade<span class="section-detail"> — Strait of Hormuz</span>',
+        f'Crisis Context: Supply Chain Cascade{sc_summary}<span class="section-detail"> — Strait of Hormuz</span>',
         f"""<div class="card">
 {summary}{elapsed_badge}
-<div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;line-height:1.5;">
-The Strait of Hormuz carries ~21% of global oil, ~25% of global LNG, and hosts the world's largest helium processing
-facility at Ras Laffan, Qatar. Disruption creates a cascading timeline of impacts far beyond oil prices.
-Statuses are evaluated from live market data each run.{timeline_note_text}
-</div>
 <div class="table-scroll table-edge-hint">
 <table>
 <thead><tr><th>Timeframe</th><th>Impact</th><th>Status</th></tr></thead>
@@ -2674,11 +2755,8 @@ Statuses are evaluated from live market data each run.{timeline_note_text}
 </tbody>
 </table>
 </div>
-<div style="margin-top:1rem;font-size:0.8rem;color:var(--text-dim);line-height:1.5;">
-<strong>Why this matters for markets:</strong> The 1973 oil crisis caused a 48% market decline and 8-year recovery.
-The current situation is broader — it affects energy, semiconductors, food, and pharmaceuticals simultaneously.
-Historical parallel suggests a longer recovery timeline than a pure oil shock.
-</div>
+{_explanation_detail("About this cascade model", intro_prose)}
+{_explanation_detail("Why this matters for markets", why_matters)}
 </div>""",
         section_id="supply-chain",
     )
@@ -2734,6 +2812,16 @@ The system surfaces the best opportunities at each risk level and is explicit ab
 
 </div>"""
     return _collapsible("Definitions — Time Horizons, Risk Levels &amp; Methodology", content)
+
+
+def _explanation_detail(summary_text: str, content: str) -> str:
+    """Nested disclosure for methodology/explanation prose — keeps data visible."""
+    return (
+        f'<details style="margin:0.5rem 0;"><summary style="cursor:pointer;'
+        f'font-size:0.8rem;color:var(--text-dim);">{summary_text}</summary>'
+        f'<div style="margin:0.4rem 0 0 0.5rem;font-size:0.82rem;'
+        f'color:var(--text-dim);">{content}</div></details>'
+    )
 
 
 def _collapsible(
