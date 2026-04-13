@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   generate-report:
@@ -72,3 +73,69 @@ jobs:
           publish_dir: ./docs
           force_orphan: true
           commit_message: "Update report — ${{ github.event_name }}"
+
+      - name: Close open report alerts on success
+        if: success()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'report-alert',
+              state: 'open',
+            });
+            for (const issue of issues) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Report succeeded — auto-closing.\n\n[Run ${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
+
+      - name: Create alert issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'report-alert',
+              state: 'open',
+            });
+            if (open.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open[0].number,
+                body: `Another failure — ${context.eventName} trigger.\n\n[Run ${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              });
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Daily Market Report failed — ${new Date().toISOString().split('T')[0]}`,
+              body: [
+                `The Daily Market Report workflow failed.`,
+                ``,
+                `| Detail | Value |`,
+                `|--------|-------|`,
+                `| **Run** | [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) |`,
+                `| **Trigger** | ${context.eventName} |`,
+                `| **Time (UTC)** | ${new Date().toISOString()} |`,
+                ``,
+                `Check the run logs for the failing step.`,
+              ].join('\n'),
+              labels: ['report-alert'],
+            });

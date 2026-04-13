@@ -1,0 +1,103 @@
+name: Report Watchdog
+
+# Runs after each expected Daily Market Report cron window.
+# If no successful report run is found for the window, opens a GitHub Issue
+# (label: report-alert) so the repo owner receives an email notification.
+
+on:
+  schedule:
+    # 15:00 UTC Mon-Fri — 3 h after the 12:00 UTC morning cron
+    - cron: '0 15 * * 1-5'
+    # 00:30 UTC Tue-Sat — 3 h after the 21:30 UTC evening cron
+    - cron: '30 0 * * 2-6'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  actions: read
+
+jobs:
+  check-report-ran:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for successful report run in window
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const now = new Date();
+            const hour = now.getUTCHours();
+
+            // Determine which cron window we're checking.
+            // 15:00 UTC watchdog → morning window (12:00 UTC target)
+            // 00:30 UTC watchdog → evening window (21:30 UTC target)
+            const isMorningCheck = hour >= 12 && hour <= 18;
+            const windowStart = new Date(now);
+
+            if (isMorningCheck) {
+              windowStart.setUTCHours(11, 0, 0, 0);
+            } else {
+              // Evening check runs after midnight; look back to yesterday 20:30
+              windowStart.setUTCDate(windowStart.getUTCDate() - 1);
+              windowStart.setUTCHours(20, 30, 0, 0);
+            }
+
+            const label = isMorningCheck ? 'morning (12:00 UTC)' : 'evening (21:30 UTC)';
+            const dateStr = windowStart.toISOString().split('T')[0];
+
+            core.info(`Checking ${label} window — looking for runs since ${windowStart.toISOString()}`);
+
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'daily-report.yml',
+              created: `>=${windowStart.toISOString()}`,
+              status: 'success',
+            });
+
+            if (runs.total_count > 0) {
+              core.info(`Found ${runs.total_count} successful run(s) — all good.`);
+              return;
+            }
+
+            // No successful run found — alert
+            const title = `Daily Report missed ${label} window — ${dateStr}`;
+            const body = [
+              `No successful Daily Market Report run detected for the **${label}** window.`,
+              ``,
+              `| Detail | Value |`,
+              `|--------|-------|`,
+              `| **Expected window** | ${label} |`,
+              `| **Checked at (UTC)** | ${now.toISOString()} |`,
+              `| **Looking since** | ${windowStart.toISOString()} |`,
+              ``,
+              `This could be GitHub Actions cron drift, a silent failure, or a skipped run.`,
+              ``,
+              `**To fix:** go to [Actions](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/workflows/daily-report.yml) → **Run workflow** on \`main\`.`,
+            ].join('\n');
+
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'report-alert',
+              state: 'open',
+            });
+
+            if (open.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open[0].number,
+                body: `Watchdog: ${title}\n\n${body}`,
+              });
+              core.warning('Added comment to existing alert issue.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['report-alert'],
+            });
+            core.warning('Created new alert issue — no successful run found.');
