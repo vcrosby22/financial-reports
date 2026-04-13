@@ -5,9 +5,15 @@ watchlist:
     # --- Mega-cap ($200B+) ---
     - AAPL      # Apple — tech hardware/services
     - MSFT      # Microsoft — enterprise software/cloud
+    - ORCL      # Oracle — enterprise DB / cloud (gap: no legacy enterprise DB mega-cap)
     - GOOGL     # Alphabet — search/cloud/AI
     - AMZN      # Amazon — ecommerce/cloud
     - NVDA      # Nvidia — semiconductors/AI
+    # Semiconductors — gap: single-name semis were NVDA-only; SOXX in supply_chain_proxies is basket
+    - INTC      # Intel — IDM / foundry turnaround (watchlist ≠ recommendation)
+    - AMD       # AMD — CPU/GPU, TSMC customer; peer set vs INTC/NVDA
+    - TSM       # Taiwan Semiconductor — foundry bellwether, supply-chain read-through
+    - AMAT      # Applied Materials — wafer fab equipment
     - TSLA      # Tesla — EVs/energy
     - META      # Meta — social/advertising
     - JPM       # JPMorgan Chase — banking
@@ -30,6 +36,9 @@ watchlist:
     - ABBV      # AbbVie — pharma (immunology, oncology)
     - DXCM      # Dexcom — continuous glucose monitors (mid-cap)
 
+    # --- Materials (gap: XLB is sector ETF only; add one cyclical metals read) ---
+    - FCX       # Freeport-McMoRan — copper (macro / electrification proxy)
+
     # --- Energy ---
     - XOM       # Exxon Mobil — integrated oil & gas
     - COP       # ConocoPhillips — E&P
@@ -48,6 +57,8 @@ watchlist:
     # --- Industrials ---
     - CAT       # Caterpillar — heavy equipment
     - HON       # Honeywell — diversified industrial
+    - RTX       # RTX — aerospace & defense (gap: geopolitical / capex cycle)
+    - DE        # Deere — agriculture equipment (gap: ag cycle vs DBA/MOS proxies)
     - UBER      # Uber — ride-share/delivery (mid-cap)
 
     # --- Financials ---
@@ -65,6 +76,7 @@ watchlist:
     # --- Communication ---
     - NFLX      # Netflix — streaming
     - DIS       # Disney — entertainment/streaming
+    - VZ        # Verizon — wireless/telco (gap: streaming without incumbent telco)
 
     # --- Small-cap ($1B–$10B) ---
     - FOUR      # Shift4 Payments — payment processing
