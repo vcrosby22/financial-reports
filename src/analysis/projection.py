@@ -1,7 +1,17 @@
 """Forward-looking risk projection and bottom-estimate model.
 
-Combines risk score trajectory, leading macro indicators, and supply chain
-momentum into a directional forecast: WORSENING / STABLE / IMPROVING.
+Combines risk score trajectory, macro net-stress ratio, and supply chain
+cascade momentum into a directional forecast:
+  WORSENING / STRESSED, HOLDING / STABLE / EASING.
+
+Direction is determined purely by trajectory (are things getting worse?)
+rather than absolute stress level (how bad are things now?).  High absolute
+risk scores shift the label to STRESSED, HOLDING when trajectory is flat,
+but do NOT inflate the direction score itself.
+
+Confidence blends data completeness (50%) with signal-family convergence
+(50%) — three families agreeing on direction gives higher confidence than
+mixed signals.
 
 Also provides a bottom-estimate model that uses historical analog crashes
 (weighted by crisis factor overlap) to project where the current decline
@@ -44,6 +54,25 @@ class RiskProjection:
         }.get(self.direction, "var(--text-dim)")
 
 
+def _macro_net_stress(macro: MacroSnapshot) -> tuple[float, int, dict[str, int]]:
+    """Compute a normalized net stress ratio from all macro indicators.
+
+    Returns (ratio, indicator_count, signal_counts).
+    Ratio range: roughly -1.0 (all bullish) to +2.0 (all critical).
+    """
+    weights = {"critical": 2, "warning": 1, "bearish": 0.5, "neutral": 0, "bullish": -1}
+    total_weight = 0.0
+    counts: dict[str, int] = {"critical": 0, "warning": 0, "bearish": 0, "neutral": 0, "bullish": 0}
+    n = 0
+    for ind in macro.indicators:
+        sig = getattr(ind, "signal", "neutral") or "neutral"
+        counts[sig] = counts.get(sig, 0) + 1
+        total_weight += weights.get(sig, 0)
+        n += 1
+    ratio = total_weight / n if n > 0 else 0.0
+    return ratio, n, counts
+
+
 def compute_projection(
     risk_trend: RiskTrend | None,
     macro: MacroSnapshot | None,
@@ -52,123 +81,147 @@ def compute_projection(
     """Compute a directional risk projection from available signals.
 
     Returns a RiskProjection with direction, confidence, and supporting factors.
-    Confidence reflects data completeness — more historical data = higher confidence.
+    Confidence blends data completeness (do we have enough data?) with signal
+    convergence (do the signal families agree on direction?).
     """
     score = 0.0  # positive = worsening, negative = improving
     factors: list[str] = []
     data_points = 0
     current_uncapped = risk_trend.current_uncapped if risk_trend else 0
 
+    # Per-family directional votes for convergence scoring.
+    # +1 = worsening, -1 = easing, 0 = neutral.
+    family_votes: list[int] = []
+
     # --- Risk score trajectory (highest weight when data exists) ---
+    trajectory_sub = 0.0
     if risk_trend and risk_trend.has_any:
         if risk_trend.delta_1d is not None:
             data_points += 1
             if risk_trend.delta_1d > 3:
-                score += 1.5
+                trajectory_sub += 1.5
                 factors.append(f"Risk score up {risk_trend.delta_1d:+d} in 24h")
             elif risk_trend.delta_1d < -3:
-                score -= 1.5
+                trajectory_sub -= 1.5
                 factors.append(f"Risk score down {risk_trend.delta_1d:+d} in 24h")
 
         if risk_trend.delta_1w is not None:
             data_points += 1
             if risk_trend.delta_1w > 5:
-                score += 2.0
+                trajectory_sub += 2.0
                 factors.append(f"Risk score up {risk_trend.delta_1w:+d} over 1 week")
             elif risk_trend.delta_1w > 0:
-                score += 0.5
+                trajectory_sub += 0.5
                 factors.append(f"Risk score trending up over 1 week ({risk_trend.delta_1w:+d})")
             elif risk_trend.delta_1w < -5:
-                score -= 2.0
+                trajectory_sub -= 2.0
                 factors.append(f"Risk score down {risk_trend.delta_1w:+d} over 1 week")
             elif risk_trend.delta_1w < 0:
-                score -= 0.5
+                trajectory_sub -= 0.5
                 factors.append(f"Risk score trending down over 1 week ({risk_trend.delta_1w:+d})")
 
         if risk_trend.delta_1m is not None:
             data_points += 1
             if risk_trend.delta_1m > 10:
-                score += 2.5
+                trajectory_sub += 2.5
                 factors.append(f"Risk score up {risk_trend.delta_1m:+d} over 1 month — sustained deterioration")
             elif risk_trend.delta_1m < -10:
-                score -= 2.5
+                trajectory_sub -= 2.5
                 factors.append(f"Risk score down {risk_trend.delta_1m:+d} over 1 month — sustained improvement")
 
-    # --- All macro indicators (not just a hardcoded subset) ---
-    if macro:
-        critical_count = 0
-        warning_count = 0
-        bullish_count = 0
-        for ind in macro.indicators:
-            data_points += 1
-            if ind.signal == "critical":
-                critical_count += 1
-            elif ind.signal == "warning":
-                warning_count += 1
-            elif ind.signal == "bullish":
-                bullish_count += 1
+    score += trajectory_sub
+    if trajectory_sub > 0.5:
+        family_votes.append(1)
+    elif trajectory_sub < -0.5:
+        family_votes.append(-1)
+    elif risk_trend and risk_trend.has_any:
+        family_votes.append(0)
 
-        stressed = critical_count + warning_count
-        if critical_count >= 2:
-            score += 2.5
-            factors.append(f"{critical_count} macro indicators at critical")
-        elif critical_count == 1:
-            score += 1.0
-            factors.append(f"1 macro indicator at critical, {warning_count} at warning")
-        elif warning_count >= 3:
-            score += 1.5
-            factors.append(f"{warning_count} macro indicators at warning")
-        elif warning_count >= 1:
-            score += 0.5
-            factors.append(f"{warning_count} macro indicator(s) at warning")
+    # --- Macro indicators: net stress ratio (includes bearish signals) ---
+    macro_sub = 0.0
+    if macro and macro.indicators:
+        ratio, n_ind, counts = _macro_net_stress(macro)
+        data_points += n_ind
 
-        if bullish_count >= 3:
-            score -= 1.5
-            factors.append(f"{bullish_count} macro indicators improving")
-        elif bullish_count >= 2:
-            score -= 0.5
-            factors.append(f"{bullish_count} macro indicators improving")
+        if ratio > 0.4:
+            macro_sub = min(ratio / 0.4, 1.0) * 2.5
+        elif ratio > 0:
+            macro_sub = (ratio / 0.4) * 1.0
+        elif ratio < -0.3:
+            macro_sub = max(ratio / 0.3, -1.0) * 1.5
+        elif ratio < 0:
+            macro_sub = (ratio / 0.3) * 0.5
 
-    # --- Supply chain cascade momentum (6-stage model) ---
-    if cascade_active_count > 0:
-        data_points += 1
-        if cascade_active_count >= 3:
-            score += 2.0
-            factors.append(f"Broad supply chain cascade: {cascade_active_count}/6 stages active")
-        elif cascade_active_count >= 2:
-            score += 1.0
-            factors.append(f"Supply chain cascade building: {cascade_active_count}/6 stages active")
-        elif cascade_active_count == 1:
-            score += 0.3
-            factors.append("1 supply chain cascade stage active")
+        stress_parts = []
+        for level in ("critical", "warning", "bearish"):
+            if counts.get(level, 0):
+                stress_parts.append(f"{counts[level]} {level}")
+        if counts.get("bullish", 0):
+            stress_parts.append(f"{counts['bullish']} bullish")
 
-    # --- Absolute-level floor: high scores bias toward worsening ---
-    if current_uncapped >= 200:
-        score += 2.0
-        factors.append(f"Absolute score ({current_uncapped}) in heavy stress territory")
-    elif current_uncapped >= 100:
-        score += 1.0
-        factors.append(f"Absolute score ({current_uncapped}) in compounding stress territory")
+        summary = ", ".join(stress_parts) if stress_parts else "all neutral"
+        factors.append(f"Macro net stress {ratio:+.2f} — {summary} across {n_ind} indicators")
 
-    # --- Determine direction (context-aware labels at high scores) ---
-    if score > 1.5:
+    score += macro_sub
+    if macro_sub > 0.3:
+        family_votes.append(1)
+    elif macro_sub < -0.3:
+        family_votes.append(-1)
+    elif macro and macro.indicators:
+        family_votes.append(0)
+
+    # --- Supply chain cascade momentum (6-stage model, symmetric) ---
+    cascade_sub = 0.0
+    data_points += 1
+    if cascade_active_count >= 3:
+        cascade_sub = 2.0
+        factors.append(f"Broad supply chain cascade: {cascade_active_count}/6 stages active")
+    elif cascade_active_count >= 2:
+        cascade_sub = 1.0
+        factors.append(f"Supply chain cascade building: {cascade_active_count}/6 stages active")
+    elif cascade_active_count == 1:
+        cascade_sub = 0.3
+        factors.append("1 supply chain cascade stage active")
+    else:
+        cascade_sub = -0.3
+        factors.append("No active supply chain cascade stages")
+
+    score += cascade_sub
+    if cascade_sub > 0.1:
+        family_votes.append(1)
+    elif cascade_sub < -0.1:
+        family_votes.append(-1)
+    else:
+        family_votes.append(0)
+
+    # --- Direction: absolute level informs label, NOT direction score ---
+    if score > 2.5:
         direction = "worsening"
-    elif score < -1.5:
+    elif score < -2.5:
         direction = "easing"
-    elif current_uncapped >= 100:
+    elif current_uncapped >= 150:
         direction = "stressed_holding"
     else:
         direction = "stable"
 
-    # --- Confidence based on data completeness ---
-    if data_points >= 6:
-        confidence = 0.75
-    elif data_points >= 3:
-        confidence = 0.5
-    elif data_points >= 1:
-        confidence = 0.3
+    # --- Confidence: data completeness (50%) + signal convergence (50%) ---
+    completeness = min(data_points / 8, 1.0)
+
+    non_neutral = [v for v in family_votes if v != 0]
+    if len(non_neutral) >= 2:
+        majority = 1 if sum(non_neutral) > 0 else (-1 if sum(non_neutral) < 0 else 0)
+        if majority != 0:
+            convergence = sum(1 for v in non_neutral if v == majority) / len(non_neutral)
+        else:
+            convergence = 0.0
+    elif len(non_neutral) == 1:
+        convergence = 0.5
     else:
-        confidence = 0.1
+        convergence = 0.0
+
+    confidence = (completeness * 0.5) + (convergence * 0.5)
+
+    if data_points == 0:
         factors.append("Limited historical data — projection confidence will improve over time")
 
     if not factors:
