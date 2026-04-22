@@ -266,6 +266,13 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     if bottom_estimate:
         console.print(f"  Bottom estimate: optimistic {bottom_estimate.optimistic_decline:.1f}%, base {bottom_estimate.base_decline:.1f}%, pessimistic {bottom_estimate.pessimistic_decline:.1f}%")
 
+    log_path = append_risk_score_log(health)
+    if log_path:
+        console.print(f"[dim]Risk score log: {log_path}[/dim]")
+    daily_path = upsert_daily_risk_snapshot(health)
+    if daily_path:
+        console.print(f"[dim]Risk score daily snapshot: {daily_path}[/dim]")
+
     console.print("  Building HTML...")
     html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend, cascade_stages, projection, bottom_estimate)
 
@@ -279,12 +286,6 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         filepath = REPORTS_DIR / filename
 
     filepath.write_text(html)
-    log_path = append_risk_score_log(health)
-    if log_path:
-        console.print(f"[dim]Risk score log: {log_path}[/dim]")
-    daily_path = upsert_daily_risk_snapshot(health)
-    if daily_path:
-        console.print(f"[dim]Risk score daily snapshot: {daily_path}[/dim]")
     console.print(f"\n[bold green]Report saved: {filepath}[/bold green]")
 
     if open_browser:
