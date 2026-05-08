@@ -388,16 +388,16 @@
     },
     "2026-05-08": {
       "snapshot_date": "2026-05-08",
-      "ts_utc": "2026-05-08T14:02:55.195024+00:00",
+      "ts_utc": "2026-05-08T22:32:06.562862+00:00",
       "score": 100,
-      "score_uncapped": 731,
+      "score_uncapped": 721,
       "overall_risk": "heavy_stress",
-      "critical_count": 11,
-      "warning_count": 33,
-      "leading_signal_count": 13,
+      "critical_count": 10,
+      "warning_count": 34,
+      "leading_signal_count": 14,
       "source": "github_actions",
-      "github_sha": "8b02f1a5be237ebdcbef33d2908b1b9a28395428",
-      "github_run_id": "25559823576"
+      "github_sha": "45bf55227c53b5e4d1839bef19a8fff14d15a5e5",
+      "github_run_id": "25582685253"
     }
   }
 }
