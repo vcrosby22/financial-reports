@@ -1383,7 +1383,11 @@ def _risk_trend_chart_html(
     dates = [s.get("snapshot_date", "") for s in snapshots]
 
     y_min = 0
-    y_max = max(max(scores) * 1.15, 100)
+    # Stable Y-axis: floor at 250 so the chart doesn't squish/stretch day-to-day
+    # when scores stay in the normal 0-200 range. When scores exceed the floor
+    # (e.g. crisis periods) the axis expands smoothly by +10% headroom.
+    Y_FLOOR = 250
+    y_max = max(max(scores) * 1.10, Y_FLOOR)
 
     def _x(i: int) -> float:
         if len(scores) == 1:
@@ -1393,17 +1397,19 @@ def _risk_trend_chart_html(
     def _y(v: float) -> float:
         return PAD_T + plot_h - ((v - y_min) / (y_max - y_min)) * plot_h
 
+    # Demoted color bands — kept for orientation but pushed to background
+    # at very low opacity so they don't compete with the line for attention.
+    # The two regime boundaries (100 = ACUTE STRESS, 200 = HEAVY STRESS)
+    # are emphasized via dashed reference lines below instead.
     risk_bands = [
-        (0, 20, "rgba(34,197,94,0.10)", "Low"),
-        (20, 40, "rgba(234,179,8,0.08)", ""),
-        (40, 60, "rgba(249,115,22,0.08)", ""),
-        (60, 80, "rgba(239,68,68,0.08)", ""),
-        (80, 100, "rgba(220,38,38,0.10)", ""),
-        (100, 200, "rgba(153,27,27,0.10)", ""),
-        (200, 9999, "rgba(127,29,29,0.12)", ""),
+        (0, 20, "rgba(34,197,94,0.04)"),
+        (20, 60, "rgba(234,179,8,0.03)"),
+        (60, 100, "rgba(239,68,68,0.04)"),
+        (100, 200, "rgba(153,27,27,0.06)"),
+        (200, 9999, "rgba(127,29,29,0.08)"),
     ]
     band_rects = []
-    for lo, hi, color, label in risk_bands:
+    for lo, hi, color in risk_bands:
         if lo >= y_max:
             break
         top = _y(min(hi, y_max))
@@ -1415,6 +1421,26 @@ def _risk_trend_chart_html(
             f'height="{bot - top:.1f}" fill="{color}" />'
         )
 
+    # Reference lines at the two meaningful regime boundaries.
+    # These give the eye an instant "where am I?" anchor without needing
+    # to read tick labels.
+    ref_lines = []
+    for ref_val, ref_label, ref_color in [
+        (100, "Acute stress", "rgba(220,38,38,0.55)"),
+        (200, "Heavy stress", "rgba(127,29,29,0.65)"),
+    ]:
+        if ref_val < y_max:
+            yp = _y(ref_val)
+            ref_lines.append(
+                f'<line x1="{PAD_L}" y1="{yp:.1f}" x2="{W - PAD_R}" y2="{yp:.1f}" '
+                f'stroke="{ref_color}" stroke-width="1" stroke-dasharray="4,3" />'
+            )
+            ref_lines.append(
+                f'<text x="{W - PAD_R - 4}" y="{yp - 3:.1f}" '
+                f'fill="{ref_color}" font-size="9" font-weight="600" '
+                f'text-anchor="end">{ref_label} ({ref_val})</text>'
+            )
+
     grid_lines = []
     step = 100 if y_max > 400 else 50 if y_max > 150 else 20
     val = step
@@ -1422,7 +1448,7 @@ def _risk_trend_chart_html(
         yp = _y(val)
         grid_lines.append(
             f'<line x1="{PAD_L}" y1="{yp:.1f}" x2="{W - PAD_R}" y2="{yp:.1f}" '
-            f'stroke="rgba(255,255,255,0.07)" stroke-width="0.5" />'
+            f'stroke="rgba(255,255,255,0.05)" stroke-width="0.5" />'
         )
         grid_lines.append(
             f'<text x="{PAD_L - 4}" y="{yp + 3:.1f}" '
@@ -1518,6 +1544,7 @@ def _risk_trend_chart_html(
         f'style="width:100%;height:auto;max-height:180px;font-family:inherit;">',
         "".join(band_rects),
         "".join(grid_lines),
+        "".join(ref_lines),
         f'<polyline points="{polyline_pts}" fill="none" stroke="#60a5fa" '
         f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />',
         "".join(dots),
