@@ -1,8 +1,11 @@
 name: Report Watchdog
 
 # Runs after each expected Daily Market Report cron window.
-# If no successful report run is found for the window, opens a GitHub Issue
-# (label: report-alert) so the repo owner receives an email notification.
+# If no successful report run is found for the window:
+#   1. Auto-dispatch daily-report.yml to recover.
+#   2. Open (or comment on) a GitHub Issue tagged 'report-alert' so the
+#      repo owner receives an email notification with the audit trail.
+# This turns "miss → user finds it later" into "miss → self-heals within ~3h".
 
 on:
   schedule:
@@ -14,7 +17,7 @@ on:
 
 permissions:
   issues: write
-  actions: read
+  actions: write
 
 jobs:
   check-report-ran:
@@ -59,7 +62,23 @@ jobs:
               return;
             }
 
-            // No successful run found — alert
+            // No successful run found — auto-dispatch a recovery run before alerting
+            let recovered = false;
+            let dispatchError = null;
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'daily-report.yml',
+                ref: 'main',
+              });
+              recovered = true;
+              core.warning('Watchdog: auto-dispatched daily-report.yml to recover from missed window.');
+            } catch (e) {
+              dispatchError = e.message || String(e);
+              core.error(`Watchdog: auto-dispatch failed — ${dispatchError}`);
+            }
+
             const title = `Daily Report missed ${label} window — ${dateStr}`;
             const body = [
               `No successful Daily Market Report run detected for the **${label}** window.`,
@@ -69,11 +88,15 @@ jobs:
               `| **Expected window** | ${label} |`,
               `| **Checked at (UTC)** | ${now.toISOString()} |`,
               `| **Looking since** | ${windowStart.toISOString()} |`,
+              `| **Auto-recovery** | ${recovered ? 'Dispatched daily-report.yml on `main`' : 'FAILED — manual action needed'} |`,
+              dispatchError ? `| **Dispatch error** | \`${dispatchError}\` |` : '',
               ``,
-              `This could be GitHub Actions cron drift, a silent failure, or a skipped run.`,
+              recovered
+                ? `Watchdog auto-dispatched the report on \`main\`. Check [Actions](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/workflows/daily-report.yml) for the recovery run; it should appear in 1-2 minutes.`
+                : `Auto-dispatch failed. Manually run from [Actions](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/workflows/daily-report.yml) → **Run workflow** on \`main\`.`,
               ``,
-              `**To fix:** go to [Actions](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/workflows/daily-report.yml) → **Run workflow** on \`main\`.`,
-            ].join('\n');
+              `Cause is most likely GitHub Actions cron drift, a silent failure, or a skipped run.`,
+            ].filter(Boolean).join('\n');
 
             const { data: open } = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
