@@ -42,6 +42,10 @@ jobs:
       - name: Generate report
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          # Optional cascade-data API keys; missing keys degrade gracefully.
+          HORMUZ_API_KEY: ${{ secrets.HORMUZ_API_KEY }}
+          FDA_API_KEY: ${{ secrets.FDA_API_KEY }}
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
         run: python -m src report --output docs/index.html --no-open
 
       - name: Verify FRED/macro is present in HTML
