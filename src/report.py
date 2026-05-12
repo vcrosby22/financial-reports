@@ -354,7 +354,8 @@ def _build_html(
 
     # -- Build individual sections --
     kpi_section = _section_kpi_cards(health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend)
-    risk_inner = _section_risk_summary(health, risk_color, conf_color, guidance, daily_snapshots, risk_trend)
+    risk_inner = _risk_story_lead(health, risk_trend)
+    risk_inner += _section_risk_summary(health, risk_color, conf_color, guidance, daily_snapshots, risk_trend)
     risk_inner += _snapshot_narrative(health, risk_trend)
     if risk_trend and risk_trend.has_any:
         risk_inner += _section_risk_trend(risk_trend)
@@ -523,6 +524,44 @@ h2 {{
 .risk-banner .meta {{ color: var(--text-dim); font-size: 0.85rem; }}
 .risk-banner .meta span {{
   display: inline-block; margin-right: 0.75rem; margin-bottom: 0.25rem;
+}}
+
+/* Risk story lead — single takeaway sentence above the banner.
+   Storytelling-with-Data: one anchor number, color where it carries meaning,
+   plain-language direction word so the reader doesn't have to translate. */
+.risk-story {{
+  padding: 1.1rem 1rem 0.9rem;
+  margin-bottom: 0.6rem;
+  border-radius: 0.75rem;
+  background: var(--surface);
+  border-left: 4px solid {risk_color};
+}}
+.risk-story-headline {{
+  font-size: clamp(1.05rem, 0.95rem + 1.2vw, 1.45rem);
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+}}
+.risk-story-score {{
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: {risk_color};
+}}
+.risk-story-level {{
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: {risk_color};
+}}
+.risk-story-direction.improving {{ color: var(--green); font-weight: 600; }}
+.risk-story-direction.deteriorating {{ color: var(--red); font-weight: 600; }}
+.risk-story-direction.holding {{ color: var(--text-dim); font-weight: 600; }}
+.risk-story-base {{ color: var(--text-dim); }}
+.risk-story-sub {{
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.5;
 }}
 .stat {{
   display: inline-block; padding: 0.4rem 0.8rem; border-radius: 0.5rem;
@@ -1488,6 +1527,86 @@ def _risk_trend_chart_html(
     ]
 
     return f'<div style="margin:0.5rem 0;">{"".join(svg_parts)}</div>'
+
+
+def _risk_story_lead(
+    health: MarketHealthReport,
+    risk_trend: "RiskTrend | None",
+) -> str:
+    """One-sentence story lead above the risk banner.
+
+    Pattern (Option B — movement-oriented, fact-only, no advice):
+      "Score N / LEVEL, down M points week-over-week —
+       direction is improving from a very high base."
+
+    Falls back gracefully when 1w trend is unavailable
+    (e.g. fresh setup with < 7 days of snapshots).
+    """
+    uncapped = _health_uncapped_score(health)
+    score_str = str(uncapped)
+    level_str = display_label(health.overall_risk).upper()
+
+    movement_html = ""
+    direction_html = ""
+    if risk_trend and risk_trend.delta_1w is not None:
+        delta = risk_trend.delta_1w
+        if delta < 0:
+            movement_html = f", down <strong>{abs(delta)} points</strong> week-over-week"
+            direction_html = (
+                ' &mdash; direction is '
+                '<span class="risk-story-direction improving">improving</span>'
+            )
+        elif delta > 0:
+            movement_html = f", up <strong>{delta} points</strong> week-over-week"
+            direction_html = (
+                ' &mdash; direction is '
+                '<span class="risk-story-direction deteriorating">deteriorating</span>'
+            )
+        else:
+            movement_html = ", flat week-over-week"
+            direction_html = (
+                ' &mdash; direction is '
+                '<span class="risk-story-direction holding">holding</span>'
+            )
+    elif risk_trend and risk_trend.delta_1d is not None:
+        d = risk_trend.delta_1d
+        if d < 0:
+            movement_html = f", down <strong>{abs(d)} points</strong> from yesterday"
+            direction_html = (
+                ' &mdash; direction is '
+                '<span class="risk-story-direction improving">improving</span>'
+            )
+        elif d > 0:
+            movement_html = f", up <strong>{d} points</strong> from yesterday"
+            direction_html = (
+                ' &mdash; direction is '
+                '<span class="risk-story-direction deteriorating">deteriorating</span>'
+            )
+
+    base_html = ""
+    risk_key = health.overall_risk
+    if risk_key in ("acute_stress", "compounding_stress", "severe_stress", "heavy_stress"):
+        base_html = ' <span class="risk-story-base">from a very high base</span>'
+    elif risk_key == "low":
+        base_html = ' <span class="risk-story-base">from a calm base</span>'
+
+    sub = (
+        '<p class="risk-story-sub">'
+        'What follows is the supporting evidence: which signals fired, '
+        'how today compares to recent history, and what the cascade is showing.'
+        '</p>'
+    )
+
+    return (
+        '<div class="risk-story" role="region" aria-label="Risk overview headline">'
+        '<p class="risk-story-headline">'
+        f'Score <span class="risk-story-score">{score_str}</span> / '
+        f'<span class="risk-story-level">{level_str}</span>'
+        f'{movement_html}{direction_html}{base_html}.'
+        '</p>'
+        f'{sub}'
+        '</div>'
+    )
 
 
 def _section_risk_summary(
