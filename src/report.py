@@ -3375,6 +3375,60 @@ def _section_historical_parallels(
     )
 
 
+def _cascade_stage_impact(stage_name: str, status: str) -> str:
+    """Plain-English "what this means for you" line per cascade stage.
+
+    Maps (stage_name -> base impact phrase) and tunes the verb tense
+    based on whether the stage is active, projected, or not started.
+    Designed for non-trader readers (a friend or family member).
+
+    Returns "" when stage_name doesn't match — the line is purely
+    additive, never gates the original description.
+    """
+    impacts = {
+        "Oil Price Shock":
+            ("gas-pump prices",
+             "showing up at the gas pump first — usually within days"),
+        "Energy Cost Cascade":
+            ("home heating, electric, and shipping bills",
+             "feeding into utility bills and shipping rates over 1–2 weeks"),
+        "Helium & Semiconductor Squeeze":
+            ("memory chip and consumer-electronics prices",
+             "reaching memory chips and consumer-electronics prices over weeks-to-months"),
+        "Fertilizer & Food Pressure":
+            ("grocery store food prices",
+             "passing through to grocery food prices over 1–3 months"),
+        "Pharmaceutical Delays":
+            ("generic drug availability",
+             "creating possible generic-drug shortages 2–4 months out"),
+        "Industrial Slowdown":
+            ("manufacturing jobs and capex",
+             "showing up as factory layoffs and capex cuts 3–6 months out"),
+    }
+    entry = impacts.get(stage_name)
+    if not entry:
+        return ""
+    short_label, full_phrase = entry
+
+    if status == "active":
+        text = f"Already {full_phrase}."
+        color = "var(--red)"
+    elif status == "projected":
+        text = f"On track to start {full_phrase}."
+        color = "var(--yellow)"
+    else:
+        text = f"If this stage activates: expect to see it in {short_label}."
+        color = "var(--text-dim)"
+
+    return (
+        f'<div style="font-size:0.78rem;color:{color};margin-top:0.4rem;'
+        f'line-height:1.5;font-style:italic;">'
+        f'<strong style="font-style:normal;color:var(--text-dim);">'
+        f'What it means: </strong>{text}'
+        f'</div>'
+    )
+
+
 def _section_supply_chain(cascade_stages: list | None = None) -> str:
     """Public-safe supply chain risk monitor — driven by live data when available."""
     from datetime import date as _date
@@ -3426,11 +3480,13 @@ def _section_supply_chain(cascade_stages: list | None = None) -> str:
                 evidence_items = "".join(f"<li>{escape(e)}</li>" for e in stage.evidence[:5])
                 evidence_html = f"<ul style='margin:0.25rem 0 0 1rem;padding:0;font-size:0.75rem;color:var(--text-dim);'>{evidence_items}</ul>"
 
+            impact_html = _cascade_stage_impact(stage.name, stage.status)
+
             stage_rows.append(
                 f'<tr style="{bg}"><td style="font-weight:600;">{escape(stage.timeframe)}</td>'
                 f"<td><strong>{escape(stage.name)}</strong><br>"
                 f"<span style='font-size:0.8rem;color:var(--text-dim);'>{escape(stage.description)}</span>"
-                f"{evidence_html}{timeline_note}{first_activated}</td>"
+                f"{impact_html}{evidence_html}{timeline_note}{first_activated}</td>"
                 f"<td>{status_html}{meta_html}</td></tr>"
             )
     else:
