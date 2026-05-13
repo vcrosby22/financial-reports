@@ -67,7 +67,17 @@ jobs:
           done
           if [ "$changed" = true ]; then
             git diff --cached --quiet || git commit -m "data: snapshot (${{ github.event_name }})"
-            git push
+            # Rebase + retry to survive races with watchdog auto-dispatch
+            # or fast back-to-back manual runs that also push data snapshots.
+            for i in 1 2 3; do
+              git pull --rebase --autostash origin main || true
+              if git push origin main; then
+                echo "data history pushed on attempt $i"
+                break
+              fi
+              echo "push attempt $i rejected — retrying after rebase"
+              sleep $((i * 3))
+            done
           fi
 
       # peaceiris/actions-gh-pages@v4 still ships Node 20 as of 2026-05-13.
