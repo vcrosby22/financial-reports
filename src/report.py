@@ -3100,6 +3100,154 @@ def _factor_chip(factor: str, is_match: bool = False) -> str:
     )
 
 
+def _bottom_estimate_range_bar(be, analogs_text: str) -> str:
+    """Probability range bar for the 2026 bottom estimate.
+
+    Replaces the four-card Now/Optimistic/Base/Pessimistic layout with a
+    single horizontal axis. The shaded region between optimistic and
+    pessimistic decline values is the model's confidence range; the base
+    case is a vertical line marker; "Now" sits as a circle wherever the
+    current decline has reached on the same axis.
+
+    Storytelling-with-Data: one anchor visual, the spread is read in <1s
+    instead of eye-shuttling between four numerically-similar cards.
+    """
+    declines = [
+        be.optimistic_decline,
+        be.base_decline,
+        be.pessimistic_decline,
+        be.current_decline_pct,
+    ]
+    # Axis: 0% on the left, slightly past the deepest point on the right.
+    axis_max = max(abs(min(declines, default=-50)), 5) * 1.1
+
+    def x_for(decline: float) -> float:
+        # Decline values are negative; map abs(decline) to 0..100% along axis.
+        if axis_max <= 0:
+            return 0.0
+        return min(100.0, max(0.0, abs(decline) / axis_max * 100))
+
+    # Coordinates (percent of width inside the bar track).
+    x_now = x_for(be.current_decline_pct)
+    x_opt = x_for(be.optimistic_decline)
+    x_base = x_for(be.base_decline)
+    x_pess = x_for(be.pessimistic_decline)
+    band_left = min(x_opt, x_pess)
+    band_width = abs(x_pess - x_opt)
+
+    # Tick marks at sensible decline percentages.
+    ticks = []
+    for tick_pct in [0, 10, 20, 30, 40, 50, 60]:
+        if tick_pct > axis_max:
+            continue
+        tx = (tick_pct / axis_max) * 100 if axis_max > 0 else 0
+        ticks.append(
+            f'<div style="position:absolute;left:{tx:.1f}%;top:0;bottom:0;'
+            f'width:1px;background:rgba(255,255,255,0.06);"></div>'
+            f'<div style="position:absolute;left:{tx:.1f}%;top:100%;'
+            f'transform:translateX(-50%);font-size:0.65rem;color:var(--text-dim);'
+            f'margin-top:0.2rem;">-{tick_pct}%</div>'
+        )
+
+    # Headline: one-sentence summary of the base case range and timeline.
+    # Compare in raw points so we get the right sign for the verb.
+    pts_remaining = abs(be.base_decline) - abs(be.current_decline_pct)
+    if pts_remaining > 0.5:
+        verb_phrase = (
+            f'falls another '
+            f'<strong style="color:#eab308;">{pts_remaining:.1f} pts</strong> '
+            f'to <strong>~{be.base_level:,.0f}</strong>'
+        )
+    elif pts_remaining < -0.5:
+        verb_phrase = (
+            f'recovers '
+            f'<strong style="color:var(--green);">{abs(pts_remaining):.1f} pts</strong> '
+            f'to <strong>~{be.base_level:,.0f}</strong>'
+        )
+    else:
+        verb_phrase = (
+            f'holds near current level '
+            f'(<strong>~{be.base_level:,.0f}</strong>)'
+        )
+    headline = (
+        f'<div style="font-size:0.95rem;color:var(--text);margin-bottom:0.75rem;'
+        f'line-height:1.45;">'
+        f'<strong>Base case:</strong> S&amp;P {verb_phrase} '
+        f'(total <strong>{be.base_decline:.1f}%</strong> from peak), bottoming in '
+        f'<strong>~{be.base_days} days</strong>. '
+        f'Range: <span style="color:var(--green);">{be.optimistic_decline:.1f}%</span> '
+        f'to <span style="color:var(--red);">{be.pessimistic_decline:.1f}%</span>.'
+        f'</div>'
+    )
+
+    return f'''<div style="margin-bottom:1.25rem;padding:1rem;background:var(--surface);
+        border:1px solid var(--border);border-radius:0.6rem;">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;
+              flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+    <div style="font-size:0.85rem;font-weight:600;color:var(--text);">
+      2026 Bottom Estimate
+    </div>
+    <div style="font-size:0.72rem;color:var(--text-dim);">
+      analog-weighted (confidence: {be.confidence:.0%})
+    </div>
+  </div>
+  {headline}
+  <div style="position:relative;height:30px;margin:1rem 0 1.5rem;
+              padding-bottom:1.2rem;">
+    <!-- Track (full axis) -->
+    <div style="position:absolute;left:0;right:0;top:13px;height:4px;
+                background:var(--surface2);border-radius:2px;"></div>
+    <!-- Confidence band (optimistic -> pessimistic) -->
+    <div style="position:absolute;left:{band_left:.1f}%;width:{band_width:.1f}%;
+                top:9px;height:12px;
+                background:linear-gradient(to right,
+                  rgba(34,197,94,0.35), rgba(234,179,8,0.4),
+                  rgba(239,68,68,0.4));
+                border-radius:6px;border:1px solid rgba(255,255,255,0.08);"></div>
+    <!-- Tick grid -->
+    {"".join(ticks)}
+    <!-- Optimistic marker -->
+    <div title="Optimistic: {be.optimistic_decline:.1f}% in ~{be.optimistic_days} days"
+         style="position:absolute;left:{x_opt:.1f}%;top:5px;height:20px;
+                width:2px;background:var(--green);transform:translateX(-50%);"></div>
+    <div style="position:absolute;left:{x_opt:.1f}%;top:-1.1rem;
+                transform:translateX(-50%);font-size:0.65rem;font-weight:600;
+                color:var(--green);white-space:nowrap;">Opt {be.optimistic_decline:.1f}%</div>
+    <!-- Base case marker -->
+    <div title="Base case: {be.base_decline:.1f}% in ~{be.base_days} days"
+         style="position:absolute;left:{x_base:.1f}%;top:0;height:30px;
+                width:3px;background:#eab308;transform:translateX(-50%);
+                box-shadow:0 0 4px rgba(234,179,8,0.6);"></div>
+    <div style="position:absolute;left:{x_base:.1f}%;top:-1.1rem;
+                transform:translateX(-50%);font-size:0.7rem;font-weight:700;
+                color:#eab308;white-space:nowrap;">Base {be.base_decline:.1f}%</div>
+    <!-- Pessimistic marker -->
+    <div title="Pessimistic: {be.pessimistic_decline:.1f}% in ~{be.pessimistic_days} days"
+         style="position:absolute;left:{x_pess:.1f}%;top:5px;height:20px;
+                width:2px;background:var(--red);transform:translateX(-50%);"></div>
+    <div style="position:absolute;left:{x_pess:.1f}%;top:-1.1rem;
+                transform:translateX(-50%);font-size:0.65rem;font-weight:600;
+                color:var(--red);white-space:nowrap;">Pess {be.pessimistic_decline:.1f}%</div>
+    <!-- "Now" position dot (cyan = wayfinding) -->
+    <div title="Today: {be.current_decline_pct:.1f}% from peak"
+         style="position:absolute;left:{x_now:.1f}%;top:8px;width:14px;height:14px;
+                border-radius:50%;background:var(--cyan);border:2px solid var(--bg);
+                transform:translateX(-50%);box-shadow:0 0 8px rgba(6,182,212,0.6);
+                z-index:2;"></div>
+    <div style="position:absolute;left:{x_now:.1f}%;bottom:-1.5rem;
+                transform:translateX(-50%);font-size:0.7rem;font-weight:700;
+                color:var(--cyan);white-space:nowrap;">
+      Now {be.current_decline_pct:.1f}%</div>
+  </div>
+  <div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.6rem;
+              line-height:1.5;">
+    Based on: {escape(analogs_text)}. Each analog weighted by crisis-factor
+    overlap. <strong>This is not a prediction</strong> — it shows where similar
+    historical crises ended, not where this one will.
+  </div>
+</div>'''
+
+
 def _section_historical_parallels(
     sp500_price: float | None,
     macro_data: object | None = None,
@@ -3180,42 +3328,7 @@ def _section_historical_parallels(
     if bottom_estimate and hasattr(bottom_estimate, 'base_decline'):
         be = bottom_estimate
         analogs_text = ", ".join(be.analogs_used[:3]) if be.analogs_used else "insufficient data"
-
-        def _zone(color: str, label: str, decline: float, level: float, days: int, is_now: bool = False) -> str:
-            border_top = f"border-top:3px solid {color};"
-            opacity = "opacity:0.85;" if not is_now and label != "Base Case" else ""
-            size_cls = "estimate-val-lg" if label == "Base Case" else "estimate-val"
-            days_label = "today" if is_now else f"~{days} days"
-            return (
-                f'<div class="estimate-zone" style="background:var(--surface);'
-                f'{border_top}{opacity}">'
-                f'<div style="font-size:0.7rem;font-weight:600;color:{color};text-transform:uppercase;'
-                f'letter-spacing:0.04em;margin-bottom:0.3rem;">{escape(label)}</div>'
-                f'<div class="{size_cls}" style="font-weight:700;color:{color};">{decline:.1f}%</div>'
-                f'<div style="font-size:0.82rem;color:var(--text);margin-top:0.15rem;">S&amp;P ~{level:,.0f}</div>'
-                f'<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.15rem;">{days_label}</div>'
-                f'</div>'
-            )
-
-        zones = [
-            _zone("var(--cyan)", "Now", be.current_decline_pct, be.current_level, 0, is_now=True),
-            _zone("var(--green)", "Optimistic", be.optimistic_decline, be.optimistic_level, be.optimistic_days),
-            _zone("#eab308", "Base Case", be.base_decline, be.base_level, be.base_days),
-            _zone("var(--red)", "Pessimistic", be.pessimistic_decline, be.pessimistic_level, be.pessimistic_days),
-        ]
-
-        arrow = '<div class="estimate-arrow">&#9654;</div>'
-
-        bottom_html = f"""<div style="margin-bottom:1.25rem;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:0.6rem;">
-<div style="font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:0.6rem;">2026 Bottom Estimate <span style="font-size:0.72rem;color:var(--text-dim);font-weight:400;">(analog-weighted from factor overlap)</span></div>
-<div class="estimate-row">
-{arrow.join(zones)}
-</div>
-<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.6rem;line-height:1.4;">
-Based on: {escape(analogs_text)}. Each analog weighted by crisis factor overlap (confidence: {be.confidence:.0%}).
-This is not a prediction — it shows where similar historical crises ended.
-</div>
-</div>"""
+        bottom_html = _bottom_estimate_range_bar(be, analogs_text)
 
     base_decline_hint = ""
     if bottom_estimate and hasattr(bottom_estimate, 'base_decline'):
