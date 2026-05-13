@@ -56,28 +56,63 @@ jobs:
 
       - name: Persist data history files
         run: |
+          # Race-safe pattern. Avoid rebase on append-only JSONL logs:
+          # rebase conflicts can leave the tree mid-merge and clobber
+          # the freshly-generated docs/index.html, which then deploys
+          # as stale HTML to gh-pages. Incident: 2026-05-13 run
+          # 25810865827. Instead we (1) save the fresh report aside,
+          # (2) hard-reset to origin/main, (3) re-write our data files
+          # on top, (4) commit + push, (5) restore the fresh report so
+          # the deploy step ships today's content.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 1. Save the freshly-generated report and our updated data files
+          #    out of the worktree so reset --hard can't wipe them.
+          mkdir -p /tmp/run-snapshot
+          if [ -f docs/index.html ]; then
+            cp docs/index.html /tmp/run-snapshot/index.html
+          fi
+          DATA_FILES="data/risk_score_history.jsonl data/risk_score_daily.json data/supply_chain_history.jsonl"
           changed=false
-          for f in data/risk_score_history.jsonl data/risk_score_daily.json data/supply_chain_history.jsonl; do
+          for f in $DATA_FILES; do
             if [ -f "$f" ]; then
-              git add "$f"
+              cp "$f" "/tmp/run-snapshot/$(basename $f)"
               changed=true
             fi
           done
+
           if [ "$changed" = true ]; then
-            git diff --cached --quiet || git commit -m "data: snapshot (${{ github.event_name }})"
-            # Rebase + retry to survive races with watchdog auto-dispatch
-            # or fast back-to-back manual runs that also push data snapshots.
             for i in 1 2 3; do
-              git pull --rebase --autostash origin main || true
+              git fetch origin main
+              git reset --hard origin/main
+              for f in $DATA_FILES; do
+                bn="/tmp/run-snapshot/$(basename $f)"
+                if [ -f "$bn" ]; then
+                  cp "$bn" "$f"
+                  git add "$f"
+                fi
+              done
+              if git diff --cached --quiet; then
+                echo "Data files unchanged vs origin — nothing to commit."
+                break
+              fi
+              git commit -m "data: snapshot (${{ github.event_name }})"
               if git push origin main; then
                 echo "data history pushed on attempt $i"
                 break
               fi
-              echo "push attempt $i rejected — retrying after rebase"
+              echo "push attempt $i rejected — refetching"
               sleep $((i * 3))
             done
+          else
+            echo "No data history files to persist."
+          fi
+
+          # 5. Restore the freshly-generated report for the deploy step.
+          if [ -f /tmp/run-snapshot/index.html ]; then
+            mkdir -p docs
+            cp /tmp/run-snapshot/index.html docs/index.html
           fi
 
       # peaceiris/actions-gh-pages@v4 still ships Node 20 as of 2026-05-13.
