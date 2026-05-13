@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -70,6 +70,12 @@ jobs:
             git push
           fi
 
+      # peaceiris/actions-gh-pages@v4 still ships Node 20 as of 2026-05-13.
+      # Tracking PR #1143 upstream for Node 24 bump. Revisit before
+      # June 2, 2026 — at that point either: (a) bump to a Node-24
+      # release if shipped, (b) migrate to actions/upload-pages-artifact
+      # + actions/deploy-pages, or (c) set
+      # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true as a temporary escape.
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -81,7 +87,7 @@ jobs:
       - name: Close open report alerts on success
         if: success()
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -108,7 +114,7 @@ jobs:
 
       - name: Create alert issue on failure
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: open } = await github.rest.issues.listForRepo({
