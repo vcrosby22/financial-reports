@@ -1,0 +1,23 @@
+{
+    "status": "success",
+    "timestamp": "2026-05-13T15:16:12Z",
+    "data": {
+        "risk_score": 9.1,
+        "risk_level": "critical",
+        "trend": "rising",
+        "previous_score": 8.8,
+        "change_24h": 0.49,
+        "crisis_active": true,
+        "crisis_name": "2026 Hormuz Closure",
+        "crisis_day": 75,
+        "dimensions": {
+            "iranian_naval_posture": 9.5,
+            "diplomatic_temperature": 9.2,
+            "traffic_anomaly": 8.9,
+            "war_risk_insurance": 9.7,
+            "incident_frequency": 8.3
+        },
+        "updated_at": "2026-05-13T15:16:12Z",
+        "next_update": "2026-05-13T15:31:12Z"
+    }
+}

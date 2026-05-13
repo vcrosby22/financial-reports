@@ -1,0 +1,45 @@
+{
+    "status": "success",
+    "timestamp": "2026-05-13T15:31:12Z",
+    "data": {
+        "crisis_active": true,
+        "crisis_name": "2026 Hormuz Closure",
+        "crisis_started": "2026-02-27T00:00:00Z",
+        "duration_days": 75,
+        "severity": "critical",
+        "oil_supply_disrupted_mbd": 15.7,
+        "brent_price_usd": 122.21,
+        "brent_change_since_onset": 44.3,
+        "iea_spr_released_mb": 60,
+        "bypass_utilisation_pct": 98.1,
+        "resolution_signal": "none",
+        "summary": "Strait effectively closed since Feb 27 following US-Israel strikes on Iranian infrastructure. War-risk insurance suspended. 160+ vessels stranded.",
+        "key_developments": [
+            {
+                "date": "2026-03-21",
+                "event": "Lloyd's JWC suspends war-risk coverage for Persian Gulf"
+            },
+            {
+                "date": "2026-03-19",
+                "event": "IEA announces 60mb coordinated SPR release"
+            },
+            {
+                "date": "2026-03-14",
+                "event": "Mine warning issued \u2014 UKMTO advisory"
+            },
+            {
+                "date": "2026-03-08",
+                "event": "Saudi Aramco force majeure on March nominations"
+            },
+            {
+                "date": "2026-02-27",
+                "event": "Iran formally closes strait to commercial transit"
+            },
+            {
+                "date": "2026-02-13",
+                "event": "US-Israel strikes on Iranian nuclear infrastructure"
+            }
+        ],
+        "updated_at": "2026-05-13T15:31:12Z"
+    }
+}

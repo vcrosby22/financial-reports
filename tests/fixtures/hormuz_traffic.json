@@ -1,0 +1,19 @@
+{
+    "status": "success",
+    "timestamp": "2026-05-13T15:31:10Z",
+    "data": {
+        "transits_today": 3,
+        "transits_yesterday": 3,
+        "transits_7day_avg": 3.7,
+        "pre_crisis_daily_avg": 21.2,
+        "reduction_pct": 82.4,
+        "vessels_anchored_fujairah": 90,
+        "vessels_stranded_total": 169,
+        "dark_ships_detected_24h": 12,
+        "naval_vessels_active": 35,
+        "traffic_status": "severely_disrupted",
+        "inbound_lane_status": "closed",
+        "outbound_lane_status": "restricted",
+        "updated_at": "2026-05-13T15:31:10Z"
+    }
+}

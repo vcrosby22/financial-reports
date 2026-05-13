@@ -273,8 +273,31 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     if daily_path:
         console.print(f"[dim]Risk score daily snapshot: {daily_path}[/dim]")
 
+    # Compute per-source health for the cascade footer (rule:
+    # external-data-source-integrity item 5 — make absence visible).
+    # "live" = the integration returned a populated snapshot this run;
+    # "unreachable" = wired but None; "partial" = returned data but key
+    # field missing; "off" = not configured.
+    data_source_status: dict[str, str] = {
+        "FRED (macro)": "live" if (macro_data and macro_data.indicators) else "unreachable",
+        "yfinance (markets)": "live" if market_data.get("indices") else "unreachable",
+        "Hormuz Monitor": (
+            "live" if (hormuz_data is not None and hormuz_data.risk_level not in (None, "unknown"))
+            else "unreachable"
+        ),
+        "openFDA": "live" if fda_data is not None else "unreachable",
+        "EIA": (
+            "live" if (eia_data is not None and eia_data.ng_futures_price is not None)
+            else ("partial" if eia_data is not None else "unreachable")
+        ),
+    }
+
     console.print("  Building HTML...")
-    html = _build_html(market_data, macro_data, fundamentals, health, trend_context, opportunities, risk_trend, cascade_stages, projection, bottom_estimate)
+    html = _build_html(
+        market_data, macro_data, fundamentals, health, trend_context,
+        opportunities, risk_trend, cascade_stages, projection, bottom_estimate,
+        data_source_status=data_source_status,
+    )
 
     if output_path:
         filepath = Path(output_path)
@@ -307,6 +330,7 @@ def _build_html(
     cascade_stages: list | None = None,
     projection: object | None = None,
     bottom_estimate: object | None = None,
+    data_source_status: dict[str, str] | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -406,7 +430,7 @@ def _build_html(
 
     crisis_parts: list[str] = [
         _section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate),
-        _section_supply_chain(cascade_stages),
+        _section_supply_chain(cascade_stages, data_source_status=data_source_status),
     ]
 
     extra_parts: list[str] = []
@@ -3441,7 +3465,47 @@ def _cascade_stage_impact(stage_name: str, status: str) -> str:
     )
 
 
-def _section_supply_chain(cascade_stages: list | None = None) -> str:
+def _data_source_footer_html(status: dict[str, str] | None) -> str:
+    """Render a small "data sources" footer with a colored dot per source.
+
+    Required by `external-data-source-integrity` rule item 5: make absence
+    visible in the artifact, not just in agent logs. Reader sees at a
+    glance whether the cascade was fed by live data or fallback proxies.
+    """
+    if not status:
+        return ""
+    palette = {
+        "live": ("#22c55e", "live"),
+        "partial": ("#eab308", "partial"),
+        "unreachable": ("#ef4444", "unreachable"),
+        "off": ("#64748b", "off"),
+    }
+    chips = []
+    for label, state in status.items():
+        color, word = palette.get(state, ("#64748b", state))
+        chips.append(
+            f'<span style="display:inline-flex;align-items:center;gap:0.3rem;'
+            f'margin-right:0.9rem;white-space:nowrap;">'
+            f'<span style="display:inline-block;width:0.5rem;height:0.5rem;'
+            f'border-radius:50%;background:{color};"></span>'
+            f'<span>{escape(label)}</span>'
+            f'<span style="color:var(--text-dim);">— {word}</span>'
+            f'</span>'
+        )
+    return (
+        '<div style="font-size:0.72rem;color:var(--text-dim);'
+        'margin-top:0.75rem;padding-top:0.6rem;border-top:1px solid var(--border);'
+        'line-height:1.6;">'
+        '<strong style="color:var(--text);">Cascade data sources:</strong> '
+        + "".join(chips) +
+        '</div>'
+    )
+
+
+def _section_supply_chain(
+    cascade_stages: list | None = None,
+    data_source_status: dict[str, str] | None = None,
+) -> str:
     """Public-safe supply chain risk monitor — driven by live data when available."""
     from datetime import date as _date
 
@@ -3560,6 +3624,7 @@ def _section_supply_chain(cascade_stages: list | None = None) -> str:
 </tbody>
 </table>
 </div>
+{_data_source_footer_html(data_source_status)}
 {_explanation_detail("About this cascade model", intro_prose)}
 {_explanation_detail("Why this matters for markets", why_matters)}
 </div>""",

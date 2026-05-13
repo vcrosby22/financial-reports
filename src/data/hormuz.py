@@ -18,7 +18,16 @@ from ..config import get_settings
 
 console = Console()
 
-_BASE = "https://api.hormuzmonitor.com/v2"
+# The marketing site at hormuzmonitor.com advertises
+#   https://api.hormuzmonitor.com/v2
+# but that subdomain has no DNS A record (NXDOMAIN from every public
+# resolver, including the parent's authoritative Bluehost nameservers
+# ns1/ns2.bluehost.com). The actual API is served by a WordPress
+# plugin at the Bluehost-hosted origin below. Same auth scheme
+# (X-API-Key), same response envelope ({"status","data":{...}}).
+# Verified live 2026-05-13: returns risk_score 9.1 / crisis_active true.
+# See BL-105 in the workspace BACKLOG.md for the full incident.
+_BASE = "https://mhh.gic.mybluehost.me/wp-json/hlapi/v2"
 _TIMEOUT = 15
 
 

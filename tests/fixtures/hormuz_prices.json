@@ -1,0 +1,15 @@
+{
+    "status": "success",
+    "timestamp": "2026-05-13T15:31:13Z",
+    "data": {
+        "brent_usd": 122.4,
+        "wti_usd": 116.8,
+        "dubai_usd": 118.51,
+        "lng_jkm_mmbtu": 38.16,
+        "vlcc_td3c_worldscale": 288,
+        "war_risk_premium_pct": 3.52,
+        "brent_ytd_change_pct": 57.3,
+        "updated_at": "2026-05-13T15:31:13Z",
+        "delay_minutes": 15
+    }
+}
