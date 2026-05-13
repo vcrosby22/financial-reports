@@ -292,11 +292,80 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         ),
     }
 
+    # Cross-source data validity (rule: external-data-source-integrity
+    # item 6 — every claim that overlaps with a known second source must
+    # be cross-validated at build time, with drift surfaced in the
+    # artifact). See src/analysis/cross_source.py for the overlap matrix.
+    console.print("  Cross-source validity check...")
+    from .analysis.cross_source import (
+        validate as _xs_validate,
+        per_source_validity as _xs_per_source,
+        overall_validity as _xs_overall,
+        to_log_record as _xs_log_record,
+    )
+    cross_checks = _xs_validate({
+        "hormuz": hormuz_data,
+        "market_data": market_data,
+        "macro_data": macro_data,
+        "fda": fda_data,
+        "eia": eia_data,
+    })
+    overall_validity_status = _xs_overall(cross_checks)
+    if cross_checks:
+        for c in cross_checks:
+            if c.status == "ok":
+                console.print(
+                    f"    ok    {c.label} (drift {c.drift_pct:+.1f}%)"
+                )
+            elif c.status == "drift_warn":
+                console.print(
+                    f"[yellow]    warn  {c.label} — {c.reason}[/yellow]"
+                )
+            elif c.status == "drift_fail":
+                console.print(
+                    f"[red]    fail  {c.label} — {c.reason}[/red]"
+                )
+            else:
+                console.print(f"[dim]    n/a   {c.label} — {c.reason}[/dim]")
+    # Persist a single line to data/validation_log.jsonl for trend
+    # tracking. The file is append-only; one record per CI run.
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+        _val_log = _Path(__file__).resolve().parents[1] / "data" / "validation_log.jsonl"
+        _val_log.parent.mkdir(parents=True, exist_ok=True)
+        with _val_log.open("a") as _f:
+            _f.write(_json.dumps(_xs_log_record(cross_checks)) + "\n")
+    except Exception as _e:  # noqa: BLE001 — never let logging break the build
+        console.print(f"[dim]validation_log.jsonl: skipped ({_e})[/dim]")
+
+    # Fold validity into the per-source dot status: a source that's "live"
+    # but has drift gets a "drift_warn" or "drift_fail" status so the
+    # footer dot can turn yellow / red. Maps source-under-test prefix to
+    # display-label via this small lookup.
+    _src_to_label = {
+        "hormuz": "Hormuz Monitor",
+        "fred": "FRED (macro)",
+        "macro": "FRED (macro)",
+        "yfinance": "yfinance (markets)",
+        "fda": "openFDA",
+        "eia": "EIA",
+    }
+    for src, validity in _xs_per_source(cross_checks).items():
+        label = _src_to_label.get(src)
+        if label and label in data_source_status:
+            current = data_source_status[label]
+            # Only worsen — don't silently upgrade a known-broken source.
+            severity_rank = {"live": 0, "drift_warn": 1, "partial": 1, "unreachable": 2, "drift_fail": 2, "off": 1}
+            if severity_rank.get(validity, 0) > severity_rank.get(current, 0):
+                data_source_status[label] = validity
+
     console.print("  Building HTML...")
     html = _build_html(
         market_data, macro_data, fundamentals, health, trend_context,
         opportunities, risk_trend, cascade_stages, projection, bottom_estimate,
         data_source_status=data_source_status,
+        cross_source_checks=cross_checks,
     )
 
     if output_path:
@@ -331,6 +400,7 @@ def _build_html(
     projection: object | None = None,
     bottom_estimate: object | None = None,
     data_source_status: dict[str, str] | None = None,
+    cross_source_checks: list | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -430,7 +500,11 @@ def _build_html(
 
     crisis_parts: list[str] = [
         _section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate),
-        _section_supply_chain(cascade_stages, data_source_status=data_source_status),
+        _section_supply_chain(
+            cascade_stages,
+            data_source_status=data_source_status,
+            cross_source_checks=cross_source_checks,
+        ),
     ]
 
     extra_parts: list[str] = []
@@ -3465,18 +3539,31 @@ def _cascade_stage_impact(stage_name: str, status: str) -> str:
     )
 
 
-def _data_source_footer_html(status: dict[str, str] | None) -> str:
-    """Render a small "data sources" footer with a colored dot per source.
+def _data_source_footer_html(
+    status: dict[str, str] | None,
+    cross_source_checks: list | None = None,
+) -> str:
+    """Render a small "data sources" footer with colored dots + drift line.
 
-    Required by `external-data-source-integrity` rule item 5: make absence
-    visible in the artifact, not just in agent logs. Reader sees at a
-    glance whether the cascade was fed by live data or fallback proxies.
+    Required by `external-data-source-integrity` rule items 5 and 6:
+    item 5 = make absence visible (presence dot per source); item 6 =
+    surface cross-source drift in the artifact, not just agent logs.
+
+    Dot semantics:
+      green       — live and aligned with overlapping ground-truth source
+      yellow      — live but the source's value drifts >10% vs. another
+                     independent source we already have (possibly stale,
+                     possibly inflated, treat with caution)
+      red         — unreachable, OR live but drift >20% (effectively bad)
+      grey        — not configured / off
     """
     if not status:
         return ""
     palette = {
         "live": ("#22c55e", "live"),
+        "drift_warn": ("#eab308", "live, drifting"),
         "partial": ("#eab308", "partial"),
+        "drift_fail": ("#ef4444", "drift critical"),
         "unreachable": ("#ef4444", "unreachable"),
         "off": ("#64748b", "off"),
     }
@@ -3492,12 +3579,34 @@ def _data_source_footer_html(status: dict[str, str] | None) -> str:
             f'<span style="color:var(--text-dim);">— {word}</span>'
             f'</span>'
         )
+
+    drift_line = ""
+    if cross_source_checks:
+        drifting = [c for c in cross_source_checks if c.status in ("drift_warn", "drift_fail")]
+        if drifting:
+            parts = []
+            for c in drifting:
+                fmt_a = f"{c.value_a:.2f}" if c.value_a is not None else "n/a"
+                fmt_b = f"{c.value_b:.2f}" if c.value_b is not None else "n/a"
+                parts.append(
+                    f"<span style=\"color:{'#ef4444' if c.status=='drift_fail' else '#eab308'};\">"
+                    f"{escape(c.label)}: {fmt_a} vs {fmt_b} ({c.drift_pct:+.1f}%)"
+                    f"</span>"
+                )
+            drift_line = (
+                '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.4rem;line-height:1.5;">'
+                '<strong style="color:var(--text);">Cross-source validity:</strong> '
+                + " &middot; ".join(parts)
+                + '</div>'
+            )
+
     return (
         '<div style="font-size:0.72rem;color:var(--text-dim);'
         'margin-top:0.75rem;padding-top:0.6rem;border-top:1px solid var(--border);'
         'line-height:1.6;">'
         '<strong style="color:var(--text);">Cascade data sources:</strong> '
-        + "".join(chips) +
+        + "".join(chips)
+        + drift_line +
         '</div>'
     )
 
@@ -3505,6 +3614,7 @@ def _data_source_footer_html(status: dict[str, str] | None) -> str:
 def _section_supply_chain(
     cascade_stages: list | None = None,
     data_source_status: dict[str, str] | None = None,
+    cross_source_checks: list | None = None,
 ) -> str:
     """Public-safe supply chain risk monitor — driven by live data when available."""
     from datetime import date as _date
@@ -3624,7 +3734,7 @@ def _section_supply_chain(
 </tbody>
 </table>
 </div>
-{_data_source_footer_html(data_source_status)}
+{_data_source_footer_html(data_source_status, cross_source_checks)}
 {_explanation_detail("About this cascade model", intro_prose)}
 {_explanation_detail("Why this matters for markets", why_matters)}
 </div>""",
