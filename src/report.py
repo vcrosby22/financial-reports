@@ -496,7 +496,7 @@ body {{
 }}
 h1 {{ font-size: clamp(1.15rem, 1rem + 0.75vw, 1.5rem); font-weight: 600; margin-bottom: 0.25rem; }}
 h2 {{
-  font-size: clamp(0.95rem, 0.9rem + 0.25vw, 1.1rem); font-weight: 600; color: var(--cyan);
+  font-size: clamp(0.95rem, 0.9rem + 0.25vw, 1.1rem); font-weight: 600; color: var(--text);
   border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;
   margin: 1.5rem 0 0.75rem;
 }}
@@ -584,7 +584,7 @@ tr:hover {{ background: var(--surface2); }}
 .section-label {{
   padding: 0.3rem 0.75rem; background: var(--surface2);
   font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
-  letter-spacing: 0.08em; color: var(--cyan);
+  letter-spacing: 0.08em; color: var(--text-dim);
 }}
 .pos {{ color: var(--green); }}
 .neg {{ color: var(--red); }}
@@ -742,7 +742,7 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   white-space: normal !important;
 }}
 #supply-chain tbody td:first-child {{
-  font-size: 0.75rem; color: var(--cyan); margin-bottom: 0.15rem;
+  font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.15rem;
 }}
 #supply-chain tbody td:last-child {{
   margin-top: 0.3rem;
@@ -2310,7 +2310,7 @@ def _glossary() -> str:
     )
 
     metric_rows = "\n".join(
-        f'<tr><td style="font-weight:600;white-space:nowrap;color:var(--cyan);">{abbr}</td>'
+        f'<tr><td style="font-weight:600;white-space:nowrap;color:var(--text);">{abbr}</td>'
         f'<td style="font-weight:600;">{name}</td>'
         f'<td style="color:var(--text-dim);line-height:1.5;">{desc}</td></tr>'
         for abbr, name, desc in column_terms
@@ -3155,7 +3155,7 @@ def _section_definitions() -> str:
     content = """
 <div class="card" style="line-height:1.8;">
 
-<h3 style="color:var(--cyan);font-size:0.95rem;margin-bottom:0.75rem;">Time Horizons</h3>
+<h3 style="color:var(--text);font-size:0.95rem;margin-bottom:0.75rem;">Time Horizons</h3>
 <div class="table-scroll sticky-first-col table-edge-hint">
 <table style="width:100%;margin-bottom:1.25rem;">
 <tbody>
@@ -3169,7 +3169,7 @@ def _section_definitions() -> str:
 </table>
 </div>
 
-<h3 style="color:var(--cyan);font-size:0.95rem;margin-bottom:0.75rem;">Risk Levels (per opportunity, 1–10)</h3>
+<h3 style="color:var(--text);font-size:0.95rem;margin-bottom:0.75rem;">Risk Levels (per opportunity, 1–10)</h3>
 <div class="table-scroll sticky-first-col table-edge-hint">
 <table style="width:100%;margin-bottom:1.25rem;">
 <tbody>
@@ -3183,7 +3183,7 @@ def _section_definitions() -> str:
 </table>
 </div>
 
-<h3 style="color:var(--cyan);font-size:0.95rem;margin-bottom:0.75rem;">Honest Framing</h3>
+<h3 style="color:var(--text);font-size:0.95rem;margin-bottom:0.75rem;">Honest Framing</h3>
 <p style="color:var(--text-dim);font-size:0.85rem;">
 Opportunities are ranked by <strong style="color:var(--text);">risk-adjusted potential</strong>, not "low risk / high yield."
 Higher expected return generally comes with higher risk.
