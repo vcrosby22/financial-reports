@@ -427,7 +427,7 @@
     },
     "2026-05-13": {
       "snapshot_date": "2026-05-13",
-      "ts_utc": "2026-05-13T19:40:21.078153+00:00",
+      "ts_utc": "2026-05-13T19:40:23.753999+00:00",
       "score": 100,
       "score_uncapped": 764,
       "overall_risk": "heavy_stress",
@@ -436,7 +436,7 @@
       "leading_signal_count": 17,
       "source": "github_actions",
       "github_sha": "e9238fd16e0af287f7524a35aa37900ddc6025aa",
-      "github_run_id": "25822042588"
+      "github_run_id": "25822042938"
     }
   }
 }
