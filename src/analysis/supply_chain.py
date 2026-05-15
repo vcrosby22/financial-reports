@@ -228,6 +228,7 @@ def evaluate_cascade(
     macro: MacroSnapshot | None,
     commodities: list[dict] | None = None,
     hormuz=None,
+    tankermap_traffic=None,
     fda_shortages=None,
     eia=None,
     config: dict | None = None,
@@ -239,6 +240,7 @@ def evaluate_cascade(
         macro: current MacroSnapshot with FRED indicators.
         commodities: list of commodity dicts from the main report pipeline.
         hormuz: HormuzSnapshot from data/hormuz.py (optional).
+        tankermap_traffic: HormuzTrafficSnapshot from data/tankermap.py (optional, evidence-only).
         fda_shortages: FDAShortageSnapshot from data/openfda.py (optional).
         eia: EIASnapshot from data/eia.py (optional).
         config: parsed config.yaml dict (optional, for crisis_start_override).
@@ -334,6 +336,22 @@ def evaluate_cascade(
             )
     else:
         stage1.inputs_expected = 4  # hormuz not available — only oil proxies
+
+    # Evidence-only corroboration: TankerMap traffic grounds the "closure"
+    # read against a normal baseline, but does not yet change score/status.
+    # It graduates to scoring only after baseline/terms stability is validated.
+    if tankermap_traffic is not None:
+        pct_normal = getattr(tankermap_traffic, "percent_of_normal", None)
+        avg = getattr(tankermap_traffic, "current_7d_avg", None)
+        normal = getattr(tankermap_traffic, "normal_daily_avg", None)
+        vessels = getattr(tankermap_traffic, "current_zone_vessels", None)
+        if pct_normal is not None and avg is not None and normal:
+            stage1.evidence.append(
+                f"TankerMap traffic: {avg:.1f}/day vs {normal:.0f}/day normal "
+                f"({pct_normal:.0%} of normal)"
+            )
+        if vessels is not None:
+            stage1.evidence.append(f"TankerMap exact-zone vessels: {vessels}")
 
     _update_confidence(stage1)
     _apply_dual_rule(stage1)

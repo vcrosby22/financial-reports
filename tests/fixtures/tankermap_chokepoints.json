@@ -1,0 +1,38 @@
+{
+  "period": "since_mar10",
+  "date_from": "2026-03-10",
+  "chokepoints": ["hormuz", "suez", "malacca"],
+  "data": {
+    "hormuz": {
+      "dates": [
+        "2026-05-09",
+        "2026-05-10",
+        "2026-05-11",
+        "2026-05-12",
+        "2026-05-13",
+        "2026-05-14",
+        "2026-05-15"
+      ],
+      "lng": [1, 0, 0, 1, 0, 0, 0],
+      "crude": [0, 0, 0, 0, 1, 0, 0],
+      "product": [0, 0, 0, 0, 0, 0, 0],
+      "total": [1, 0, 0, 1, 1, 0, 0],
+      "ma7": [0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.4]
+    }
+  },
+  "summary": {
+    "hormuz": {
+      "avg_daily": 0.3,
+      "total_period": 21,
+      "trend_pct": 200.0,
+      "live_count": 1
+    }
+  },
+  "meta": {
+    "lastUpdated": "2026-05-15",
+    "freshnessWindow": null,
+    "aggregationWindow": "since 2026-03-10",
+    "source": "chokepoint_daily",
+    "warnings": []
+  }
+}

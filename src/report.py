@@ -230,7 +230,9 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     from .data.hormuz import fetch_hormuz_data
     from .data.openfda import fetch_fda_shortages
     from .data.eia import fetch_eia_data
+    from .data.tankermap import fetch_hormuz_traffic
     hormuz_data = fetch_hormuz_data()
+    tankermap_traffic = fetch_hormuz_traffic()
     fda_data = fetch_fda_shortages()
     eia_data = fetch_eia_data()
 
@@ -238,7 +240,8 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     from .analysis.supply_chain import CascadeStage, evaluate_cascade, persist_cascade_snapshot
     cascade_stages = evaluate_cascade(
         supply_chain_proxies, macro_data, commodities,
-        hormuz=hormuz_data, fda_shortages=fda_data, eia=eia_data,
+        hormuz=hormuz_data, tankermap_traffic=tankermap_traffic,
+        fda_shortages=fda_data, eia=eia_data,
         config=config,
     )
     active_stages = [s for s in cascade_stages if s.status == "active"]
@@ -283,6 +286,10 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         "yfinance (markets)": "live" if market_data.get("indices") else "unreachable",
         "Hormuz Monitor": (
             "live" if (hormuz_data is not None and hormuz_data.risk_level not in (None, "unknown"))
+            else "unreachable"
+        ),
+        "TankerMap (traffic)": (
+            "live" if (tankermap_traffic is not None and tankermap_traffic.status == "ok")
             else "unreachable"
         ),
         "openFDA": "live" if fda_data is not None else "unreachable",
@@ -366,6 +373,7 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         opportunities, risk_trend, cascade_stages, projection, bottom_estimate,
         data_source_status=data_source_status,
         cross_source_checks=cross_checks,
+        tankermap_traffic=tankermap_traffic,
     )
 
     if output_path:
@@ -401,6 +409,7 @@ def _build_html(
     bottom_estimate: object | None = None,
     data_source_status: dict[str, str] | None = None,
     cross_source_checks: list | None = None,
+    tankermap_traffic: object | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -447,7 +456,9 @@ def _build_html(
     daily_snapshots = list_daily_snapshots_chronological()
 
     # -- Build individual sections --
-    kpi_section = _section_kpi_cards(health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend)
+    kpi_section = _section_kpi_cards(
+        health, risk_color, sp500_kpi, dow_kpi, nasdaq_kpi, vix_data, oil_kpi, risk_trend, macro_data
+    )
     risk_inner = _risk_story_lead(health, risk_trend)
     risk_inner += _section_risk_summary(health, risk_color, conf_color, guidance, daily_snapshots, risk_trend)
     risk_inner += _snapshot_narrative(health, risk_trend)
@@ -480,13 +491,14 @@ def _build_html(
                        for item in cat if isinstance(item, dict) and "ticker" in item}
         fundamentals_section = _section_fundamentals(fundamentals, name_lookup)
 
+    bonds_section = _section_bond_market_dashboard(macro_data)
+
     macro_parts: list[str] = []
     if macro_data and macro_data.indicators:
         macro_parts.append(_section_macro(macro_data))
         inflation_html = _section_inflation(macro_data)
         if inflation_html:
             macro_parts.append(inflation_html)
-    macro_parts.append(_section_bond_bank_plain_english(macro_data))
 
     opportunities_section = ""
     if opportunities:
@@ -495,19 +507,28 @@ def _build_html(
     signals_parts: list[str] = [
         _section_signals(health),
         _section_score_attribution(health),
-        _section_risk_legend(health),
     ]
 
+    cascade_preview = _section_cascade_preview(
+        cascade_stages,
+        data_source_status=data_source_status,
+        cross_source_checks=cross_source_checks,
+        tankermap_traffic=tankermap_traffic,
+    )
+    cascade_section = _section_supply_chain(
+        cascade_stages,
+        data_source_status=data_source_status,
+        cross_source_checks=cross_source_checks,
+        tankermap_traffic=tankermap_traffic,
+    )
     crisis_parts: list[str] = [
         _section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate),
-        _section_supply_chain(
-            cascade_stages,
-            data_source_status=data_source_status,
-            cross_source_checks=cross_source_checks,
-        ),
     ]
 
     extra_parts: list[str] = []
+    extra_parts.append(_section_risk_legend(health))
+    extra_parts.append(_glossary())
+    extra_parts.append(_section_definitions())
     if trend_context:
         extra_parts.append(_section_trend_context(trend_context))
     extra_parts.append(_section_authoritative_sources())
@@ -517,6 +538,15 @@ def _build_html(
     panels.append('<div class="tab-panel active" data-tab="overview">')
     panels.append(kpi_section)
     panels.append(risk_section)
+    panels.append(cascade_preview)
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="bonds">')
+    panels.append(bonds_section)
+    panels.append('</div>')
+
+    panels.append('<div class="tab-panel" data-tab="cascade">')
+    panels.append(cascade_section)
     panels.append('</div>')
 
     panels.append('<div class="tab-panel" data-tab="markets">')
@@ -545,7 +575,7 @@ def _build_html(
     panels.append('</div>')
 
     if extra_parts:
-        panels.append('<div class="tab-panel" data-tab="more">')
+        panels.append('<div class="tab-panel" data-tab="reference">')
         panels.extend(extra_parts)
         panels.append('</div>')
 
@@ -1116,7 +1146,6 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 
 /* \u2500\u2500 Tablet (\u2265 768px) \u2500\u2500 */
 @media (min-width: 768px) {{
-  .tab-panel {{ display: block !important; }}
   .section-anchor {{ scroll-margin-top: 4.5rem; }}
   h2 {{ margin: 2rem 0 1rem; }}
   .card {{ padding: 1.25rem; }}
@@ -1252,11 +1281,14 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 
 <div class="nav-bar" role="tablist">
   <a href="#overview" data-tab-target="overview" role="tab" class="active">Overview</a>
+  <a href="#bonds" data-tab-target="bonds" role="tab">Bonds</a>
+  <a href="#cascade" data-tab-target="cascade" role="tab">Cascade</a>
   <a href="#markets" data-tab-target="markets" role="tab">Markets</a>
   <a href="#macro" data-tab-target="macro" role="tab">Macro</a>
   <a href="#opportunities" data-tab-target="opportunities" role="tab">Opportunities</a>
   <a href="#signals" data-tab-target="signals" role="tab">Signals</a>
   <a href="#crisis" data-tab-target="crisis" role="tab">Crisis</a>
+  <a href="#reference" data-tab-target="reference" role="tab">Reference</a>
 </div>
 
 {body}
@@ -1270,11 +1302,9 @@ Correlations may break down in crises — "diversified" assets can fall together
 Free data sources (yfinance) may have delays or accuracy issues.<br>
 <strong>Data sources:</strong> yfinance (unofficial){", FRED API (official U.S. macro series)" if macro_data and macro_data.indicators else ""}.
 Macro signals and narratives are rule-based heuristics on those series — not investment advice, not bank safety ratings (not CAMELS), not forecasts.<br>
-This report is for educational / family context. <a href="#authoritative-sources" style="color:var(--cyan);">Authoritative data sources</a><br>
+This report is for educational / family context. <a href="#reference" data-tab-target="reference" style="color:var(--cyan);">Reference and authoritative data sources</a><br>
 Generated by Financial Agent v0.2
 </div>
-
-{_section_definitions()}
 
 <script>
 (function () {{
@@ -1465,6 +1495,7 @@ Generated by Financial Agent v0.2
 (function () {{
   var panels = document.querySelectorAll(".tab-panel");
   var tabs = document.querySelectorAll(".nav-bar a[data-tab-target]");
+  var tabLinks = document.querySelectorAll("a[data-tab-target]");
   var isMobile = function () {{ return window.innerWidth < 768; }};
 
   function activateTab(tabName, scroll) {{
@@ -1475,14 +1506,14 @@ Generated by Financial Agent v0.2
         tabs[i].classList.remove("active");
       }}
     }}
-    if (isMobile()) {{
-      for (var j = 0; j < panels.length; j++) {{
-        if (panels[j].getAttribute("data-tab") === tabName) {{
-          panels[j].classList.add("active");
-        }} else {{
-          panels[j].classList.remove("active");
-        }}
+    for (var j = 0; j < panels.length; j++) {{
+      if (panels[j].getAttribute("data-tab") === tabName) {{
+        panels[j].classList.add("active");
+      }} else {{
+        panels[j].classList.remove("active");
       }}
+    }}
+    if (isMobile()) {{
       window.scrollTo(0, 0);
     }} else {{
       var target = document.querySelector('.tab-panel[data-tab="' + tabName + '"]');
@@ -1496,8 +1527,8 @@ Generated by Financial Agent v0.2
     }}
   }}
 
-  for (var i = 0; i < tabs.length; i++) {{
-    tabs[i].addEventListener("click", function (e) {{
+  for (var i = 0; i < tabLinks.length; i++) {{
+    tabLinks[i].addEventListener("click", function (e) {{
       e.preventDefault();
       var tabName = this.getAttribute("data-tab-target");
       history.pushState(null, "", "#" + tabName);
@@ -1645,6 +1676,7 @@ def _section_kpi_cards(
     vix: dict | None,
     oil: dict | None,
     risk_trend: RiskTrend | None = None,
+    macro_data: MacroSnapshot | None = None,
 ) -> str:
     """Grid of KPI summary cards — the executive snapshot before any detail.
 
@@ -1737,6 +1769,18 @@ def _section_kpi_cards(
         )
         cards.append(_kpi("VIX", f"{vix_val:.1f}", vix_color, vix_sub, tier="primary"))
 
+    bond_kpi = _bond_stress_kpi(macro_data)
+    if bond_kpi:
+        cards.append(
+            _kpi(
+                "Bond Stress",
+                bond_kpi["value"],
+                bond_kpi["color"],
+                bond_kpi["sub"],
+                tier="primary",
+            )
+        )
+
     secondary = []
     for label, data in [("Dow Jones", dow), ("NASDAQ", nasdaq)]:
         card = _index_card(label, data, tier="secondary")
@@ -1765,6 +1809,73 @@ def _section_kpi_cards(
         + '</div>'
         + toggle_html
     )
+
+
+def _macro_ind(macro_data: MacroSnapshot | None, series_id: str):
+    if not macro_data:
+        return None
+    return next((ind for ind in macro_data.indicators if ind.series_id == series_id), None)
+
+
+def _bond_stress_kpi(macro_data: MacroSnapshot | None) -> dict[str, str] | None:
+    """Composite bond-market stress read for the top KPI row."""
+    if not macro_data or not macro_data.indicators:
+        return None
+
+    t10y2y = _macro_ind(macro_data, "T10Y2Y")
+    t10y3m = _macro_ind(macro_data, "T10Y3M")
+    hy = _macro_ind(macro_data, "BAMLH0A0HYM2")
+    bbb = _macro_ind(macro_data, "BAMLC0A4CBBB")
+    d10 = _macro_ind(macro_data, "DGS10")
+
+    stress_points = 0
+    if macro_data.yield_curve_inverted:
+        stress_points += 2
+    if macro_data.credit_stress:
+        stress_points += 2
+    for ind in (t10y2y, t10y3m, hy, bbb, d10):
+        if not ind:
+            continue
+        if ind.signal == "critical":
+            stress_points += 2
+        elif ind.signal in ("warning", "bearish"):
+            stress_points += 1
+
+    if stress_points >= 4:
+        value, color = "Stressed", "var(--red)"
+    elif stress_points >= 1:
+        value, color = "Watch", "var(--yellow)"
+    else:
+        value, color = "Calm", "var(--green)"
+
+    sub_parts: list[str] = []
+    signal_rank = {"critical": 3, "warning": 2, "bearish": 1, "neutral": 0, "bullish": 0}
+    curve = max(
+        [ind for ind in (t10y3m, t10y2y) if ind],
+        key=lambda ind: signal_rank.get(ind.signal, 0),
+        default=None,
+    )
+    if curve:
+        if curve.value < 0:
+            curve_label = "inverted"
+        elif curve.signal in ("warning", "bearish"):
+            curve_label = "near-flat"
+        else:
+            curve_label = "normal"
+        sub_parts.append(f"Curve {curve_label} ({curve.value:+.2f} pp)")
+    if hy:
+        sub_parts.append(f"HY spread {hy.value:.2f}%")
+    if d10:
+        direction = ""
+        if d10.change is not None:
+            direction = f" ({d10.change:+.2f})"
+        sub_parts.append(f"10Y {d10.value:.2f}%{direction}")
+
+    return {
+        "value": value,
+        "color": color,
+        "sub": "<br>".join(sub_parts[:3]),
+    }
 
 
 def _risk_trend_chart_html(
@@ -2123,7 +2234,7 @@ def _snapshot_narrative(health: MarketHealthReport, trend: RiskTrend | None) -> 
 
     parts.append(
         'For how this compares to past economic crises, see '
-        '<a href="#historical" style="color:var(--cyan);">Historical Parallels</a> below.'
+        '<a href="#crisis" data-tab-target="crisis" style="color:var(--cyan);">Historical Parallels</a>.'
     )
     return (
         '<p style="font-size:0.85rem;color:var(--text-dim);line-height:1.55;'
@@ -2504,7 +2615,7 @@ def _section_market_table(market_data: dict) -> str:
             rows_html = "".join(_market_category_table_rows(items))
             parts.append(_collapsible(f"{label} ({len(items)})", table_head + rows_html + table_tail, open_default=category_open))
 
-    inner = "\n".join(parts) + _glossary()
+    inner = "\n".join(parts)
     return _collapsible(
         f"Market Overview — {total} assets in {n_cats} categories",
         inner,
@@ -2633,6 +2744,85 @@ def _section_bond_bank_plain_english(macro_data: MacroSnapshot | None) -> str:
     )
 
 
+def _section_bond_market_dashboard(macro_data: MacroSnapshot | None) -> str:
+    """Higher-priority bond-market read: data first, plain English second."""
+    kpi = _bond_stress_kpi(macro_data)
+    if not macro_data or not macro_data.indicators or not kpi:
+        return _collapsible(
+            "Bond Market — data unavailable",
+            '<div class="card" style="color:var(--text-dim);">FRED bond-market data was not available for this run.</div>',
+            open_default=True,
+            section_id="bonds",
+        )
+
+    tracked_ids = ("T10Y3M", "T10Y2Y", "BAMLH0A0HYM2", "BAMLC0A4CBBB", "DGS10", "DGS2")
+    label_override = {
+        "T10Y3M": "10Y-3M curve",
+        "T10Y2Y": "10Y-2Y curve",
+        "BAMLH0A0HYM2": "High-yield spread",
+        "BAMLC0A4CBBB": "BBB corporate spread",
+        "DGS10": "10Y Treasury",
+        "DGS2": "2Y Treasury",
+    }
+    sig_cls = {
+        "critical": "tag-critical",
+        "warning": "tag-warning",
+        "bearish": "tag-warning",
+        "bullish": "tag-strong",
+        "neutral": "tag-info",
+    }
+
+    rows: list[str] = []
+    for sid in tracked_ids:
+        ind = _macro_ind(macro_data, sid)
+        if not ind:
+            continue
+        change = f"{ind.change:+.2f}" if ind.change is not None else "—"
+        obs = ind.observation_date.strftime("%b %-d") if ind.observation_date else "—"
+        rows.append(
+            f"<tr><td><strong>{escape(label_override.get(sid, ind.name))}</strong>"
+            f"<span class='subtitle-detail' style='font-size:0.75rem;color:var(--text-dim);'>{escape(sid)}</span></td>"
+            f"<td style='text-align:right;white-space:nowrap;'>{ind.value:.2f}%</td>"
+            f"<td class='col-m-hide' style='text-align:right;white-space:nowrap;'>{change}</td>"
+            f"<td><span class='tag {sig_cls.get(ind.signal, 'tag-info')}'>{escape(ind.signal)}</span></td>"
+            f"<td class='col-m-hide' style='color:var(--text-dim)'>{escape(ind.description)}</td>"
+            f"<td class='col-m-hide' style='text-align:right;color:var(--text-dim);white-space:nowrap;'>{obs}</td></tr>"
+        )
+
+    status_line = (
+        '<div class="card" style="border-left:4px solid {color};">'
+        '<div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">Bond Stress Composite</div>'
+        '<div style="font-size:1.45rem;font-weight:700;color:{color};line-height:1.2;margin:0.25rem 0;">{value}</div>'
+        '<div style="font-size:0.85rem;color:var(--text-dim);line-height:1.55;">{sub}</div>'
+        '</div>'
+    ).format(color=kpi["color"], value=kpi["value"], sub=kpi["sub"])
+
+    methodology = _explanation_detail(
+        "How to read this bond signal",
+        "This is a composite read, not a single market quote. It weighs curve inversion, credit-spread stress, "
+        "and Treasury-rate direction because bond-market stress usually appears through several channels at once. "
+        "For market-aware readers, high-yield and BBB spreads are especially important because they show how much "
+        "extra compensation lenders demand for corporate credit risk.",
+    )
+
+    plain_english = build_bond_bank_friend_html(macro_data)
+
+    return _collapsible(
+        f"Bond Market Dashboard — {kpi['value']}",
+        f"""{status_line}
+<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
+<table>
+<thead><tr><th>Signal</th><th style="text-align:right">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th>Status</th><th class="col-m-hide">Read</th><th class="col-m-hide" style="text-align:right">Obs.</th></tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table>
+</div>
+{methodology}
+<div class="card">{plain_english}</div>""",
+        open_default=True,
+        section_id="bonds",
+    )
+
+
 def _section_authoritative_sources() -> str:
     """Curated links (desk research); not scraped at runtime."""
     links = [
@@ -2758,15 +2948,15 @@ def _section_macro(macro_data: MacroSnapshot) -> str:
 
     return _collapsible(
         f"Macroeconomic Indicators (FRED){summary}",
-        methodology
-        + f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
+        f"""<div class="card table-scroll wide-min sticky-first-col table-edge-hint">
 <table class="macro-table is-neutral-hidden" data-macro-table="macro-main">
 <thead><tr><th>Indicator</th><th style="text-align:right;width:4.5rem;">Value</th><th class="col-m-hide" style="text-align:right">Change</th><th style="width:3.5rem;">Signal</th><th class="col-m-hide">Assessment</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
 </div>
 {neutral_toggle}
-{alerts}""",
+{alerts}
+{methodology}""",
         section_id="macro",
     )
 
@@ -3134,8 +3324,6 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
     )
 
     content = f"""
-{_explanation_detail("Disclaimers and methodology", disclaimer_content)}
-
 {filter_bar}
 
 <h3 style="color:var(--green);font-size:0.95rem;margin:1.25rem 0 0.75rem;">&#9650; Long Opportunities (Buy)</h3>
@@ -3143,7 +3331,9 @@ def _section_opportunities(opportunities: list[Opportunity], health: MarketHealt
 
 <h3 style="color:var(--red);font-size:0.95rem;margin:1.25rem 0 0.75rem;">&#9660; Short Opportunities</h3>
 {_explanation_detail("What is short selling?", short_explainer)}
-{short_cards}"""
+{short_cards}
+
+{_explanation_detail("Disclaimers and methodology", disclaimer_content)}"""
 
     return _collapsible(
         f"Opportunities ({len(opportunities)} found){summary}",
@@ -3611,10 +3801,154 @@ def _data_source_footer_html(
     )
 
 
+def _traffic_summary_line(tankermap_traffic: object | None) -> str:
+    if tankermap_traffic is None:
+        return ""
+    avg = getattr(tankermap_traffic, "current_7d_avg", None)
+    normal = getattr(tankermap_traffic, "normal_daily_avg", None)
+    pct = getattr(tankermap_traffic, "percent_of_normal", None)
+    if avg is None or not normal or pct is None:
+        return ""
+    return f"Traffic: {avg:.1f}/day vs {normal:.0f}/day normal ({pct:.0%} of normal)"
+
+
+def _hormuz_traffic_evidence_html(tankermap_traffic: object | None) -> str:
+    if tankermap_traffic is None:
+        return """
+<div class="card" style="border-left:4px solid var(--text-dim);">
+  <div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">Hormuz Traffic Evidence</div>
+  <div style="font-size:1rem;font-weight:700;color:var(--text-dim);margin-top:0.2rem;">TankerMap unavailable this run</div>
+  <div style="font-size:0.82rem;color:var(--text-dim);margin-top:0.35rem;">Traffic evidence is not included in scoring yet.</div>
+</div>"""
+
+    avg = getattr(tankermap_traffic, "current_7d_avg", None)
+    normal = getattr(tankermap_traffic, "normal_daily_avg", None)
+    total = getattr(tankermap_traffic, "current_7d_total", None)
+    vessels = getattr(tankermap_traffic, "current_zone_vessels", None)
+    pct = getattr(tankermap_traffic, "percent_of_normal", None)
+    severity = getattr(tankermap_traffic, "severity_label", "unknown")
+    latest = getattr(tankermap_traffic, "latest_date", None)
+    crude = getattr(tankermap_traffic, "crude_7d_total", None)
+    product = getattr(tankermap_traffic, "product_7d_total", None)
+    lng = getattr(tankermap_traffic, "lng_7d_total", None)
+    raw = getattr(tankermap_traffic, "raw", {}) or {}
+    meta = raw.get("meta", {}) if isinstance(raw, dict) else {}
+    baseline_source = getattr(tankermap_traffic, "baseline_source", "")
+
+    color = "var(--red)" if pct is not None and pct <= 0.1 else "var(--yellow)"
+    title = "Severely Reduced" if severity == "severely reduced" else severity.title()
+    subline = []
+    if avg is not None and normal:
+        subline.append(f"{avg:.1f}/day vs {normal:.0f}/day normal")
+    if vessels is not None:
+        subline.append(f"{vessels} vessel{'s' if vessels != 1 else ''} in zone")
+    if total is not None:
+        subline.append(f"{total} transits this week")
+    breakdown = []
+    if crude is not None:
+        breakdown.append(f"crude {crude}")
+    if product is not None:
+        breakdown.append(f"product {product}")
+    if lng is not None:
+        breakdown.append(f"LNG {lng}")
+
+    return f"""
+<div class="card" style="border-left:4px solid {color};">
+  <div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">Hormuz Traffic Evidence</div>
+  <div style="font-size:1.15rem;font-weight:700;color:{color};line-height:1.25;margin:0.2rem 0;">Hormuz Traffic: {escape(title)}</div>
+  <div style="font-size:0.86rem;color:var(--text);line-height:1.5;">{" &middot; ".join(subline)}</div>
+  <div style="font-size:0.76rem;color:var(--text-dim);margin-top:0.35rem;">Exact TankerMap strait-zone metrics. Evidence-only; not yet changing cascade score.</div>
+  <details style="margin-top:0.55rem;">
+    <summary style="cursor:pointer;font-size:0.8rem;color:var(--cyan);">Traffic evidence details</summary>
+    <div style="font-size:0.8rem;color:var(--text-dim);line-height:1.6;margin-top:0.35rem;">
+      <div>7-day breakdown: {" / ".join(breakdown) if breakdown else "unavailable"}</div>
+      <div>Latest TankerMap date: {escape(latest.isoformat() if latest else "unknown")}</div>
+      <div>Source metadata: {escape(str(meta.get("source", "unknown")))}; updated {escape(str(meta.get("lastUpdated", "unknown")))}</div>
+      <div>Baseline: {escape(baseline_source)}</div>
+      <div>Regional nearby tanker counts are intentionally not used as the headline; the exact strait-zone transit metric is better grounded.</div>
+    </div>
+  </details>
+</div>"""
+
+
+def _section_cascade_preview(
+    cascade_stages: list | None = None,
+    data_source_status: dict[str, str] | None = None,
+    cross_source_checks: list | None = None,
+    tankermap_traffic: object | None = None,
+) -> str:
+    """Compact overview card so cascade state is visible before the full tab."""
+    stages = cascade_stages or []
+    total = len(stages)
+    active = [s for s in stages if getattr(s, "status", "") == "active"]
+    projected = [s for s in stages if getattr(s, "status", "") == "projected"]
+
+    if len(active) >= 3:
+        label, color, headline = "Broad cascade", "var(--red)", "Supply-chain stress is already spreading."
+    elif len(active) >= 2:
+        label, color, headline = "Cascade building", "var(--yellow)", "Multiple downstream stages are active."
+    elif len(active) == 1:
+        label, color, headline = "Early cascade", "var(--orange)", "One stage is active; watch downstream pressure."
+    else:
+        label, color, headline = "Monitoring", "var(--green)", "No active cascade stages detected."
+
+    active_names = ", ".join(escape(getattr(s, "name", "Unknown")) for s in active[:3])
+    if active and len(active) > 3:
+        active_names += f", +{len(active) - 3} more"
+    next_stage = escape(getattr(projected[0], "name", "")) if projected else ""
+
+    source_states = list((data_source_status or {}).values())
+    if any(s in ("unreachable", "drift_fail") for s in source_states):
+        source_label, source_color = "source issue", "var(--red)"
+    elif any(s in ("partial", "drift_warn") for s in source_states):
+        source_label, source_color = "partial/drifting", "var(--yellow)"
+    elif source_states:
+        source_label, source_color = "sources live", "var(--green)"
+    else:
+        source_label, source_color = "sources unknown", "var(--text-dim)"
+
+    drifting = []
+    if cross_source_checks:
+        drifting = [c for c in cross_source_checks if c.status in ("drift_warn", "drift_fail")]
+    drift_text = ""
+    if drifting:
+        drift_text = (
+            f'<span style="color:{source_color};"> '
+            f'{len(drifting)} cross-source warning{"s" if len(drifting) != 1 else ""}</span>'
+        )
+
+    details = []
+    details.append(f"<strong>{len(active)}/{total or 0}</strong> stages active")
+    if active_names:
+        details.append(f"Active: {active_names}")
+    if next_stage:
+        details.append(f"Next watch: {next_stage}")
+    traffic_line = _traffic_summary_line(tankermap_traffic)
+    if traffic_line:
+        details.append(traffic_line)
+
+    return f"""
+<div class="card" style="border-left:4px solid {color};">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+    <div style="min-width:0;flex:1;">
+      <div style="font-size:0.75rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;">Supply-Chain Cascade</div>
+      <div style="font-size:1.15rem;font-weight:700;color:{color};line-height:1.25;margin:0.2rem 0;">{label}</div>
+      <div style="font-size:0.86rem;color:var(--text);line-height:1.5;">{headline}</div>
+      <div style="font-size:0.78rem;color:var(--text-dim);line-height:1.55;margin-top:0.4rem;">{" &middot; ".join(details)}</div>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.35rem;">
+        Data: <span style="color:{source_color};font-weight:600;">{source_label}</span>{drift_text}
+      </div>
+    </div>
+    <a href="#cascade" data-tab-target="cascade" style="color:var(--cyan);font-size:0.82rem;font-weight:600;text-decoration:none;white-space:nowrap;">Open Cascade &rarr;</a>
+  </div>
+</div>"""
+
+
 def _section_supply_chain(
     cascade_stages: list | None = None,
     data_source_status: dict[str, str] | None = None,
     cross_source_checks: list | None = None,
+    tankermap_traffic: object | None = None,
 ) -> str:
     """Public-safe supply chain risk monitor — driven by live data when available."""
     from datetime import date as _date
@@ -3726,6 +4060,7 @@ def _section_supply_chain(
         f'Crisis Context: Supply Chain Cascade{sc_summary}<span class="section-detail"> — Strait of Hormuz</span>',
         f"""<div class="card">
 {summary}{elapsed_badge}
+{_hormuz_traffic_evidence_html(tankermap_traffic)}
 <div class="table-scroll table-edge-hint">
 <table>
 <thead><tr><th>Timeframe</th><th>Impact</th><th>Status</th></tr></thead>

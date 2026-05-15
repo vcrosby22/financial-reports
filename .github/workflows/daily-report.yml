@@ -115,14 +115,9 @@ jobs:
             cp /tmp/run-snapshot/index.html docs/index.html
           fi
 
-      # peaceiris/actions-gh-pages@v4 still ships Node 20 as of 2026-05-13.
-      # Tracking PR #1143 upstream for Node 24 bump. Revisit before
-      # June 2, 2026 — at that point either: (a) bump to a Node-24
-      # release if shipped, (b) migrate to actions/upload-pages-artifact
-      # + actions/deploy-pages, or (c) set
-      # ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true as a temporary escape.
+      # v4.1.0 declares node24 in action.yml; keep pinned until the next checked release.
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs

@@ -1,0 +1,31 @@
+{
+  "bars": [
+    {
+      "time": "2026-05-14",
+      "open": 105.78,
+      "high": 107.13,
+      "low": 103.88,
+      "close": 106.58,
+      "volume": 0.0,
+      "fetched_at": "2026-05-15 00:01:54.119162+00"
+    },
+    {
+      "time": "2026-05-15",
+      "open": 106.58,
+      "high": 109.75,
+      "low": 106.26,
+      "close": 109.33,
+      "volume": 0.0,
+      "fetched_at": "2026-05-15 18:11:47.506578+00"
+    }
+  ],
+  "ticker": "BRENT",
+  "period": "1M",
+  "meta": {
+    "lastUpdated": "2026-05-15T18:11:47.506578+00:00",
+    "freshnessWindow": "1 day",
+    "aggregationWindow": "1M",
+    "source": "TankerMap market feed from KuzTerm daily OHLC bars",
+    "warnings": []
+  }
+}
