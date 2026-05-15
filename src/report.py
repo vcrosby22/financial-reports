@@ -3871,6 +3871,32 @@ def _hormuz_traffic_evidence_html(tankermap_traffic: object | None) -> str:
 </div>"""
 
 
+def _cascade_timeframe_html(stage: object) -> str:
+    """Render cascade timeframe without implying an active stage ended."""
+    timeframe = escape(str(getattr(stage, "timeframe", "") or ""))
+    start = getattr(stage, "date_range_start", None)
+    end = getattr(stage, "date_range_end", None)
+    status = getattr(stage, "status", "")
+    today = date.today()
+
+    if start and end and status == "active" and today > end:
+        primary = f"{start.strftime('%b %-d')} – Today"
+        secondary = f"Model window ended {end.strftime('%b %-d, %Y')}"
+        return (
+            f"{escape(primary)}"
+            f'<div style="font-size:0.68rem;color:var(--text-dim);'
+            f'font-weight:500;margin-top:0.25rem;line-height:1.35;">{escape(secondary)}</div>'
+        )
+    if start and end and status == "active" and start <= today <= end:
+        secondary = "Active today inside model window"
+        return (
+            f"{timeframe}"
+            f'<div style="font-size:0.68rem;color:var(--text-dim);'
+            f'font-weight:500;margin-top:0.25rem;line-height:1.35;">{secondary}</div>'
+        )
+    return timeframe
+
+
 def _section_cascade_preview(
     cascade_stages: list | None = None,
     data_source_status: dict[str, str] | None = None,
@@ -4001,9 +4027,10 @@ def _section_supply_chain(
                 evidence_html = f"<ul style='margin:0.25rem 0 0 1rem;padding:0;font-size:0.75rem;color:var(--text-dim);'>{evidence_items}</ul>"
 
             impact_html = _cascade_stage_impact(stage.name, stage.status)
+            timeframe_html = _cascade_timeframe_html(stage)
 
             stage_rows.append(
-                f'<tr style="{bg}"><td style="font-weight:600;">{escape(stage.timeframe)}</td>'
+                f'<tr style="{bg}"><td style="font-weight:600;">{timeframe_html}</td>'
                 f"<td><strong>{escape(stage.name)}</strong><br>"
                 f"<span style='font-size:0.8rem;color:var(--text-dim);'>{escape(stage.description)}</span>"
                 f"{impact_html}{evidence_html}{timeline_note}{first_activated}</td>"
