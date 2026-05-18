@@ -126,6 +126,51 @@ def _fred_observations_html(macro_data: MacroSnapshot | None) -> str:
     )
 
 
+def _sp500_high_water_mark(sp500_idx: dict | None) -> tuple[float | None, str]:
+    """Best available S&P 500 peak for crisis-context decline math."""
+    if not sp500_idx:
+        return None, "unavailable"
+    candidates: list[tuple[float, str]] = []
+    price = sp500_idx.get("price")
+    if price:
+        candidates.append((float(price), "latest close"))
+    high_52w = sp500_idx.get("fifty_two_week_high")
+    if high_52w:
+        candidates.append((float(high_52w), "52-week high"))
+    hist = sp500_idx.get("history")
+    if hist is not None and not getattr(hist, "empty", True) and "High" in hist:
+        try:
+            candidates.append((float(hist["High"].max()), "fetched history high"))
+        except Exception:
+            pass
+    if not candidates:
+        return None, "unavailable"
+    return max(candidates, key=lambda item: item[0])
+
+
+def _crisis_estimate_gate(
+    *,
+    sp500_price: float | None,
+    peak_level: float | None,
+    macro_data: MacroSnapshot | None,
+    cascade_stages: list | None,
+    cross_checks: list | None,
+) -> tuple[bool, list[str]]:
+    """Decide whether the historical analog range is safe enough to render."""
+    reasons: list[str] = []
+    if not sp500_price or not peak_level:
+        reasons.append("S&P 500 price or high-water mark unavailable")
+    elif peak_level <= sp500_price:
+        reasons.append("S&P 500 is at/above the fetched high-water mark; drawdown range is not active")
+    if not (macro_data and macro_data.indicators):
+        reasons.append("macro inputs missing, so crisis-factor inference is incomplete")
+    if not cascade_stages:
+        reasons.append("cascade inputs missing, so supply-chain factor inference is incomplete")
+    if cross_checks and any(getattr(c, "status", "") == "drift_fail" for c in cross_checks):
+        reasons.append("one or more cross-source checks are drift-critical")
+    return not reasons, reasons
+
+
 def generate_report(output_path: str | None = None, open_browser: bool = True):
     """Collect all data and generate a static HTML report.
 
@@ -256,19 +301,6 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
     projection = compute_projection(risk_trend, macro_data, active_cascade_count)
     console.print(f"  Projection: {projection.label} (confidence {projection.confidence:.0%})")
 
-    console.print("  Computing bottom estimate...")
-    sp500_idx = next((i for i in market_data.get("indices", []) if i.get("ticker") == "^GSPC"), None)
-    sp500_for_estimate = sp500_idx["price"] if sp500_idx and sp500_idx.get("price") else None
-    from .personal.historical import find_similar_crashes as _find_similar, get_all_crashes as _get_all
-    _all = _get_all(sp500_for_estimate, macro_data, active_cascade_count)
-    _current_ev = next((c for c in _all if c.name.startswith("2026")), None)
-    _current_factors = _current_ev.crisis_factors if _current_ev else set()
-    _current_decline = _current_ev.decline_pct if _current_ev else -7.5
-    _similar = _find_similar(_current_decline, sp500_price=sp500_for_estimate, macro=macro_data, cascade_active_count=active_cascade_count)
-    bottom_estimate = compute_bottom_estimate(sp500_for_estimate, _similar, _current_factors)
-    if bottom_estimate:
-        console.print(f"  Bottom estimate: optimistic {bottom_estimate.optimistic_decline:.1f}%, base {bottom_estimate.base_decline:.1f}%, pessimistic {bottom_estimate.pessimistic_decline:.1f}%")
-
     log_path = append_risk_score_log(health)
     if log_path:
         console.print(f"[dim]Risk score log: {log_path}[/dim]")
@@ -367,6 +399,46 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
             if severity_rank.get(validity, 0) > severity_rank.get(current, 0):
                 data_source_status[label] = validity
 
+    console.print("  Computing historical analog range...")
+    sp500_idx = next((i for i in market_data.get("indices", []) if i.get("ticker") == "^GSPC"), None)
+    sp500_for_estimate = sp500_idx["price"] if sp500_idx and sp500_idx.get("price") else None
+    sp500_peak, sp500_peak_source = _sp500_high_water_mark(sp500_idx)
+    can_show_estimate, estimate_gate_reasons = _crisis_estimate_gate(
+        sp500_price=sp500_for_estimate,
+        peak_level=sp500_peak,
+        macro_data=macro_data,
+        cascade_stages=cascade_stages,
+        cross_checks=cross_checks,
+    )
+    bottom_estimate = None
+    from .personal.historical import find_similar_crashes as _find_similar, get_all_crashes as _get_all
+    estimate_peak = sp500_peak or 6900.0
+    _all = _get_all(sp500_for_estimate, macro_data, active_cascade_count, peak_level=estimate_peak)
+    _current_ev = next((c for c in _all if c.name.startswith("2026")), None)
+    _current_factors = _current_ev.crisis_factors if _current_ev else set()
+    _current_decline = _current_ev.decline_pct if _current_ev else -7.5
+    if can_show_estimate:
+        _similar = _find_similar(
+            _current_decline,
+            sp500_price=sp500_for_estimate,
+            macro=macro_data,
+            cascade_active_count=active_cascade_count,
+            peak_level=estimate_peak,
+        )
+        bottom_estimate = compute_bottom_estimate(
+            sp500_for_estimate,
+            _similar,
+            _current_factors,
+            peak=estimate_peak,
+        )
+        if bottom_estimate:
+            console.print(
+                f"  Analog range: midpoint {bottom_estimate.base_decline:.1f}% "
+                f"from peak ({sp500_peak_source})"
+            )
+    else:
+        console.print(f"  Analog range hidden: {'; '.join(estimate_gate_reasons)}")
+
     console.print("  Building HTML...")
     html = _build_html(
         market_data, macro_data, fundamentals, health, trend_context,
@@ -374,6 +446,9 @@ def generate_report(output_path: str | None = None, open_browser: bool = True):
         data_source_status=data_source_status,
         cross_source_checks=cross_checks,
         tankermap_traffic=tankermap_traffic,
+        crisis_peak_level=sp500_peak,
+        crisis_peak_source=sp500_peak_source,
+        crisis_estimate_gate_reasons=estimate_gate_reasons,
     )
 
     if output_path:
@@ -410,6 +485,9 @@ def _build_html(
     data_source_status: dict[str, str] | None = None,
     cross_source_checks: list | None = None,
     tankermap_traffic: object | None = None,
+    crisis_peak_level: float | None = None,
+    crisis_peak_source: str = "unavailable",
+    crisis_estimate_gate_reasons: list[str] | None = None,
 ) -> str:
     et = ZoneInfo("America/New_York")
     now_et = datetime.now(et)
@@ -522,7 +600,15 @@ def _build_html(
         tankermap_traffic=tankermap_traffic,
     )
     crisis_parts: list[str] = [
-        _section_historical_parallels(sp500_price, macro_data, cascade_active, bottom_estimate),
+        _section_historical_parallels(
+            sp500_price,
+            macro_data,
+            cascade_active,
+            bottom_estimate,
+            peak_level=crisis_peak_level,
+            peak_source=crisis_peak_source,
+            estimate_gate_reasons=crisis_estimate_gate_reasons,
+        ),
     ]
 
     extra_parts: list[str] = []
@@ -3413,16 +3499,10 @@ def _factor_chip(factor: str, is_match: bool = False) -> str:
 
 
 def _bottom_estimate_range_bar(be, analogs_text: str) -> str:
-    """Probability range bar for the 2026 bottom estimate.
+    """Experimental historical analog range.
 
-    Replaces the four-card Now/Optimistic/Base/Pessimistic layout with a
-    single horizontal axis. The shaded region between optimistic and
-    pessimistic decline values is the model's confidence range; the base
-    case is a vertical line marker; "Now" sits as a circle wherever the
-    current decline has reached on the same axis.
-
-    Storytelling-with-Data: one anchor visual, the spread is read in <1s
-    instead of eye-shuttling between four numerically-similar cards.
+    The shaded region shows the decline range from similar historical crises;
+    it is context, not a forecast.
     """
     declines = [
         be.optimistic_decline,
@@ -3461,35 +3541,42 @@ def _bottom_estimate_range_bar(be, analogs_text: str) -> str:
             f'margin-top:0.2rem;">-{tick_pct}%</div>'
         )
 
-    # Headline: one-sentence summary of the base case range and timeline.
-    # Compare in raw points so we get the right sign for the verb.
+    # Headline: one-sentence summary of the historical midpoint and analog timing.
     pts_remaining = abs(be.base_decline) - abs(be.current_decline_pct)
     if pts_remaining > 0.5:
         verb_phrase = (
-            f'falls another '
+            f'would be another '
             f'<strong style="color:#eab308;">{pts_remaining:.1f} pts</strong> '
-            f'to <strong>~{be.base_level:,.0f}</strong>'
+            f'deeper than today'
         )
     elif pts_remaining < -0.5:
         verb_phrase = (
-            f'recovers '
+            f'is '
             f'<strong style="color:var(--green);">{abs(pts_remaining):.1f} pts</strong> '
-            f'to <strong>~{be.base_level:,.0f}</strong>'
+            f'shallower than today'
         )
     else:
         verb_phrase = (
-            f'holds near current level '
-            f'(<strong>~{be.base_level:,.0f}</strong>)'
+            f'is close to today&rsquo;s drawdown'
         )
     headline = (
         f'<div style="font-size:0.95rem;color:var(--text);margin-bottom:0.75rem;'
         f'line-height:1.45;">'
-        f'<strong>Base case:</strong> S&amp;P {verb_phrase} '
-        f'(total <strong>{be.base_decline:.1f}%</strong> from peak), bottoming in '
-        f'<strong>~{be.base_days} days</strong>. '
-        f'Range: <span style="color:var(--green);">{be.optimistic_decline:.1f}%</span> '
+        f'<strong>Analog midpoint:</strong> similar historical crises reached '
+        f'<strong>{be.base_decline:.1f}%</strong> from peak, which {verb_phrase}. '
+        f'Those analogs reached their lows after roughly <strong>{be.base_days} days</strong>. '
+        f'Range spanned <span style="color:var(--green);">{be.optimistic_decline:.1f}%</span> '
         f'to <span style="color:var(--red);">{be.pessimistic_decline:.1f}%</span>.'
         f'</div>'
+    )
+    caveat_block = (
+        '<div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:0.75rem;'
+        'line-height:1.5;">'
+        "This band is built from overlapping crisis factors versus past episodes — "
+        "<strong>not</strong> a live price forecast. It uses this run's fetched S&amp;P "
+        "high-water mark; it does not try to repair incomplete inference or degraded "
+        "upstream feeds (the shaded band hides automatically when quality gates fail)."
+        '</div>'
     )
 
     return f'''<div style="margin-bottom:1.25rem;padding:1rem;background:var(--surface);
@@ -3497,13 +3584,14 @@ def _bottom_estimate_range_bar(be, analogs_text: str) -> str:
   <div style="display:flex;align-items:baseline;justify-content:space-between;
               flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
     <div style="font-size:0.85rem;font-weight:600;color:var(--text);">
-      2026 Bottom Estimate
+      Historical Analog Range <span style="color:var(--text-dim);font-weight:500;">(experimental)</span>
     </div>
     <div style="font-size:0.72rem;color:var(--text-dim);">
-      analog-weighted (confidence: {be.confidence:.0%})
+      analog-weighted context &middot; data confidence: {be.confidence:.0%}
     </div>
   </div>
   {headline}
+  {caveat_block}
   <div style="position:relative;height:30px;margin:1rem 0 1.5rem;
               padding-bottom:1.2rem;">
     <!-- Track (full axis) -->
@@ -3518,30 +3606,30 @@ def _bottom_estimate_range_bar(be, analogs_text: str) -> str:
                 border-radius:6px;border:1px solid rgba(255,255,255,0.08);"></div>
     <!-- Tick grid -->
     {"".join(ticks)}
-    <!-- Optimistic marker -->
-    <div title="Optimistic: {be.optimistic_decline:.1f}% in ~{be.optimistic_days} days"
+    <!-- Shallow-analog marker -->
+    <div title="Shallowest matched analog: {be.optimistic_decline:.1f}% from peak; that episode trough ~{be.optimistic_days} days after its peak"
          style="position:absolute;left:{x_opt:.1f}%;top:5px;height:20px;
                 width:2px;background:var(--green);transform:translateX(-50%);"></div>
     <div style="position:absolute;left:{x_opt:.1f}%;top:-1.1rem;
                 transform:translateX(-50%);font-size:0.65rem;font-weight:600;
-                color:var(--green);white-space:nowrap;">Opt {be.optimistic_decline:.1f}%</div>
-    <!-- Base case marker -->
-    <div title="Base case: {be.base_decline:.1f}% in ~{be.base_days} days"
+                color:var(--green);white-space:nowrap;">Shallow {be.optimistic_decline:.1f}%</div>
+    <!-- Analog midpoint marker -->
+    <div title="Factor-weighted analog midpoint: {be.base_decline:.1f}%; median episode reached trough ~{be.base_days} days after peak"
          style="position:absolute;left:{x_base:.1f}%;top:0;height:30px;
                 width:3px;background:#eab308;transform:translateX(-50%);
                 box-shadow:0 0 4px rgba(234,179,8,0.6);"></div>
     <div style="position:absolute;left:{x_base:.1f}%;top:-1.1rem;
                 transform:translateX(-50%);font-size:0.7rem;font-weight:700;
-                color:#eab308;white-space:nowrap;">Base {be.base_decline:.1f}%</div>
-    <!-- Pessimistic marker -->
-    <div title="Pessimistic: {be.pessimistic_decline:.1f}% in ~{be.pessimistic_days} days"
+                color:#eab308;white-space:nowrap;">Mid {be.base_decline:.1f}%</div>
+    <!-- Deep-analog marker -->
+    <div title="Deepest matched analog: {be.pessimistic_decline:.1f}% from peak; that episode trough ~{be.pessimistic_days} days after its peak"
          style="position:absolute;left:{x_pess:.1f}%;top:5px;height:20px;
                 width:2px;background:var(--red);transform:translateX(-50%);"></div>
     <div style="position:absolute;left:{x_pess:.1f}%;top:-1.1rem;
                 transform:translateX(-50%);font-size:0.65rem;font-weight:600;
-                color:var(--red);white-space:nowrap;">Pess {be.pessimistic_decline:.1f}%</div>
+                color:var(--red);white-space:nowrap;">Deep {be.pessimistic_decline:.1f}%</div>
     <!-- "Now" position dot (cyan = wayfinding) -->
-    <div title="Today: {be.current_decline_pct:.1f}% from peak"
+    <div title="Current drawdown versus this run&rsquo;s fetched S&amp;P high-water mark: {be.current_decline_pct:.1f}%"
          style="position:absolute;left:{x_now:.1f}%;top:8px;width:14px;height:14px;
                 border-radius:50%;background:var(--cyan);border:2px solid var(--bg);
                 transform:translateX(-50%);box-shadow:0 0 8px rgba(6,182,212,0.6);
@@ -3553,10 +3641,28 @@ def _bottom_estimate_range_bar(be, analogs_text: str) -> str:
   </div>
   <div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.6rem;
               line-height:1.5;">
-    Based on: {escape(analogs_text)}. Each analog weighted by crisis-factor
-    overlap. <strong>This is not a prediction</strong> — it shows where similar
-    historical crises ended, not where this one will.
+    Based on: {escape(analogs_text)}. Each analog is weighted by crisis-factor
+    overlap. <strong>This is not a live bottom forecast</strong>; it does not
+    replace current market structure, source health, or risk-management judgment.
   </div>
+</div>'''
+
+
+def _analog_range_unavailable_html(reasons: list[str]) -> str:
+    reason_items = "".join(f"<li>{escape(r)}</li>" for r in reasons)
+    return f'''<div style="margin-bottom:1.25rem;padding:1rem;background:var(--surface);
+        border:1px solid var(--border);border-radius:0.6rem;border-left:4px solid var(--yellow);">
+  <div style="font-size:0.85rem;font-weight:600;color:var(--yellow);margin-bottom:0.5rem;">
+    Historical Analog Range paused
+  </div>
+  <div style="font-size:0.82rem;color:var(--text);line-height:1.5;">
+    The analog range is hidden until the report has a valid market high-water mark
+    and complete enough inputs. The historical parallels table below remains useful
+    context, but it should not be presented as a live bottom estimate.
+  </div>
+  <ul style="font-size:0.78rem;color:var(--text-dim);line-height:1.55;margin:0.5rem 0 0 1rem;padding:0;">
+    {reason_items}
+  </ul>
 </div>'''
 
 
@@ -3565,16 +3671,20 @@ def _section_historical_parallels(
     macro_data: object | None = None,
     cascade_active_count: int = 0,
     bottom_estimate: object | None = None,
+    peak_level: float | None = None,
+    peak_source: str = "unavailable",
+    estimate_gate_reasons: list[str] | None = None,
 ) -> str:
     """Public-safe section comparing current situation to historical crashes."""
-    peak = 6900
-    all_crashes = get_all_crashes(sp500_price, macro_data, cascade_active_count)
+    peak = peak_level or 6900.0
+    peak_is_fallback = peak_level is None
+    all_crashes = get_all_crashes(sp500_price, macro_data, cascade_active_count, peak_level=peak)
     current_event = next((c for c in all_crashes if c.name.startswith("2026")), None)
     current_factors = current_event.crisis_factors if current_event else set()
     if current_event:
         decline_pct = current_event.decline_pct
     elif sp500_price:
-        decline_pct = ((sp500_price - peak) / peak) * 100
+        decline_pct = min(((sp500_price - peak) / peak) * 100, 0)
     else:
         decline_pct = -7.5
 
@@ -3641,17 +3751,24 @@ def _section_historical_parallels(
         be = bottom_estimate
         analogs_text = ", ".join(be.analogs_used[:3]) if be.analogs_used else "insufficient data"
         bottom_html = _bottom_estimate_range_bar(be, analogs_text)
+    elif estimate_gate_reasons:
+        bottom_html = _analog_range_unavailable_html(estimate_gate_reasons)
 
-    base_decline_hint = ""
+    analog_decline_hint = ""
     if bottom_estimate and hasattr(bottom_estimate, 'base_decline'):
-        base_decline_hint = f", base case {bottom_estimate.base_decline:+.1f}%"
+        analog_decline_hint = f", analog midpoint {bottom_estimate.base_decline:+.1f}%"
+    peak_label = (
+        "fallback peak (~6,900)"
+        if peak_is_fallback
+        else f"{escape(peak_source)} (~{peak:,.0f})"
+    )
     return _collapsible(
-        f'Crisis Context: Historical Parallels — {decline_pct:+.1f}%{base_decline_hint}<span class="section-detail">, nearest analog: {escape(match_name)} ({best_overlap}/{total_f} factors)</span>',
+        f'Crisis Context: Historical Parallels — {decline_pct:+.1f}%{analog_decline_hint}<span class="section-detail">, nearest analog: {escape(match_name)} ({best_overlap}/{total_f} factors)</span>',
         f"""<div class="card">
 {crisis_dna_html}
 {bottom_html}
 <div style="margin-bottom:1rem;">
-  <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.3rem;">Current S&amp;P 500 decline from Jan 2026 peak (~6,900)</div>
+  <div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.3rem;">Current S&amp;P 500 drawdown from fetched high-water mark: {peak_label}</div>
   <div style="display:flex;align-items:center;gap:0.75rem;">
     <div style="flex-grow:1;height:20px;background:var(--surface);border-radius:10px;overflow:hidden;">
       <div style="width:{current_bar_pct:.1f}%;height:100%;background:linear-gradient(to right,#eab308,#ef4444,#dc2626);border-radius:10px;"></div>

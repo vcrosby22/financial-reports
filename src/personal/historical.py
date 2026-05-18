@@ -240,6 +240,8 @@ CRASHES: list[CrashEvent] = [
 ]
 
 _2026_PEAK_DATE = date(2026, 1, 15)
+# Legacy nominal peak for personal dashboard / backwards compatibility only.
+# Public report uses `report._sp500_high_water_mark()`; do not treat this as live market truth.
 _2026_PEAK_LEVEL = 6900.0
 
 
@@ -299,12 +301,13 @@ def build_current_crisis_event(
     sp500_price: float | None = None,
     macro: object | None = None,
     cascade_active_count: int = 0,
+    peak_level: float = _2026_PEAK_LEVEL,
 ) -> CrashEvent:
     """Build a live 2026 crisis entry with factors inferred from current data."""
     today = date.today()
-    price = sp500_price if sp500_price else _2026_PEAK_LEVEL
-    trough = min(price, _2026_PEAK_LEVEL)
-    decline = ((trough - _2026_PEAK_LEVEL) / _2026_PEAK_LEVEL) * 100 if _2026_PEAK_LEVEL else 0
+    price = sp500_price if sp500_price else peak_level
+    trough = min(price, peak_level)
+    decline = ((trough - peak_level) / peak_level) * 100 if peak_level else 0
     days = (today - _2026_PEAK_DATE).days
 
     factors = _infer_2026_factors(macro, cascade_active_count)
@@ -314,7 +317,7 @@ def build_current_crisis_event(
         trigger="Iran war, Strait of Hormuz closure, oil shock, Ras Laffan destruction, supply chain cascade",
         peak_date=_2026_PEAK_DATE,
         trough_date=today,
-        peak_level=_2026_PEAK_LEVEL,
+        peak_level=peak_level,
         trough_level=trough,
         decline_pct=round(decline, 1),
         days_to_bottom=days,
@@ -336,9 +339,10 @@ def get_all_crashes(
     sp500_price: float | None = None,
     macro: object | None = None,
     cascade_active_count: int = 0,
+    peak_level: float = _2026_PEAK_LEVEL,
 ) -> list[CrashEvent]:
     """Return all historical crashes plus the live 2026 entry."""
-    return CRASHES + [build_current_crisis_event(sp500_price, macro, cascade_active_count)]
+    return CRASHES + [build_current_crisis_event(sp500_price, macro, cascade_active_count, peak_level)]
 
 
 def find_similar_crashes(
@@ -346,10 +350,11 @@ def find_similar_crashes(
     sp500_price: float | None = None,
     macro: object | None = None,
     cascade_active_count: int = 0,
+    peak_level: float = _2026_PEAK_LEVEL,
     is_oil_shock: bool = True,  # kept for backward compat, ignored by new algorithm
 ) -> list[CrashEvent]:
     """Score historical crashes by factor overlap with 2026 + decline similarity."""
-    all_crashes = get_all_crashes(sp500_price, macro, cascade_active_count)
+    all_crashes = get_all_crashes(sp500_price, macro, cascade_active_count, peak_level)
     current_event = next((c for c in all_crashes if c.name.startswith("2026")), None)
     current_factors = current_event.crisis_factors if current_event else set()
 
@@ -393,10 +398,16 @@ def crash_comparison_for_dashboard(
     """Generate a comparison summary for the personal dashboard."""
     current_decline = ((sp500_current - sp500_peak) / sp500_peak) * 100
 
-    similar = find_similar_crashes(current_decline, sp500_price=sp500_current, macro=macro, cascade_active_count=cascade_active_count)
+    similar = find_similar_crashes(
+        current_decline,
+        sp500_price=sp500_current,
+        macro=macro,
+        cascade_active_count=cascade_active_count,
+        peak_level=sp500_peak,
+    )
     best_match = similar[0] if similar else None
 
-    all_crashes = get_all_crashes(sp500_current, macro, cascade_active_count)
+    all_crashes = get_all_crashes(sp500_current, macro, cascade_active_count, sp500_peak)
     past_oil = [c for c in all_crashes if c.oil_shock and not c.name.startswith("2026")]
     avg_oil_decline = sum(abs(c.decline_pct) for c in past_oil) / len(past_oil) if past_oil else 0
     avg_oil_recovery_months = sum(

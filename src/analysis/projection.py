@@ -232,7 +232,7 @@ def compute_projection(
 
 @dataclass
 class BottomEstimate:
-    """Projected bottom range based on historical analog crashes."""
+    """Historical analog range based on factor-overlap crashes."""
     peak_level: float
     current_level: float
     current_decline_pct: float
@@ -255,11 +255,10 @@ def compute_bottom_estimate(
     current_factors: set[str],
     peak: float = 6900.0,
 ) -> BottomEstimate | None:
-    """Project where the bottom might be using factor-weighted historical analogs.
+    """Compute where similar historical analogs bottomed.
 
-    Uses the top historical matches (by factor overlap) to produce three
-    scenarios. Each analog's decline is weighted by its factor overlap count
-    with the current crisis.
+    This is context, not a live forecast. The report layer is responsible for
+    gating this behind fresh market data and data-source quality checks.
     """
     if not similar_crashes or not current_factors:
         return None
