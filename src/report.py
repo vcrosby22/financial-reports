@@ -671,7 +671,7 @@ def _build_html(
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Market Report — data as of {escape(title_asof)}</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231e293b'/><rect x='6' y='18' width='4' height='8' rx='1' fill='%233b82f6'/><rect x='14' y='12' width='4' height='14' rx='1' fill='%233b82f6'/><rect x='22' y='6' width='4' height='20' rx='1' fill='%2322c55e'/></svg>">
 <style>
@@ -707,7 +707,11 @@ body {{
   padding-right: max(var(--pad-inline), env(safe-area-inset-right, 0px));
   padding-bottom: max(var(--pad-block), env(safe-area-inset-bottom, 0px));
   max-width: 1400px; margin: 0 auto;
-  overflow-x: hidden;
+  width: 100%;
+}}
+/* Wide tables on other tabs may scroll; do not clip the page on phones (nav bleed + hidden = cut-off text) */
+@media (min-width: 768px) {{
+  body {{ overflow-x: hidden; }}
 }}
 h1 {{ font-size: clamp(1.15rem, 1rem + 0.75vw, 1.5rem); font-weight: 600; margin-bottom: 0.25rem; }}
 h2 {{
@@ -946,64 +950,67 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   min-width: 0; width: 100%; max-width: 100%;
 }}
 .col-m-hide {{ display: none !important; }}
-/* Supply chain cascade — flex-column stage cards on phone (avoids WebKit table min-width clipping) */
+/* Supply chain cascade — div stage cards (no <table>; avoids WebKit min-width clipping) */
 #supply-chain {{
   min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box;
 }}
-#supply-chain .section-body,
-#supply-chain .card {{
+#supply-chain .section-body {{
+  padding-left: 0.5rem; padding-right: 0.5rem;
   min-width: 0; max-width: 100%; box-sizing: border-box;
 }}
-#supply-chain .table-scroll {{
-  min-width: 0; max-width: 100%; width: 100%;
-  overflow-x: visible;
+#supply-chain .card {{
+  min-width: 0; max-width: 100%; box-sizing: border-box;
+  padding: 0.75rem;
 }}
-#supply-chain .table-scroll.table-edge-hint {{
-  box-shadow: none;
+.cascade-stages-wrap {{
+  width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
 }}
-#supply-chain .table-scroll.table-edge-hint::after {{
+.cascade-stages {{
+  width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
+}}
+.cascade-stages-header {{
   display: none;
 }}
-#supply-chain .cascade-stage-table {{
-  display: block; width: 100%; max-width: 100%; min-width: 0;
-  border-collapse: separate;
-}}
-#supply-chain .cascade-stage-table thead {{ display: none; }}
-#supply-chain .cascade-stage-table tbody {{
-  display: block; width: 100%; max-width: 100%; min-width: 0;
-}}
-#supply-chain .cascade-stage-table tbody tr.cascade-stage-row {{
-  display: flex; flex-direction: column; align-items: stretch;
+.cascade-stage {{
+  display: flex; flex-direction: column; align-items: stretch; gap: 0.35rem;
   width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--surface2);
 }}
-#supply-chain .cascade-stage-table tbody td {{
-  display: block; width: 100% !important; max-width: 100% !important;
-  min-width: 0 !important; box-sizing: border-box;
-  padding: 0.15rem 0 !important;
-  white-space: normal !important;
+.cascade-stage-time {{
+  font-size: 0.75rem; font-weight: 600; color: var(--text-dim);
+  min-width: 0; max-width: 100%;
+}}
+.cascade-stage-body,
+.cascade-stage-status {{
+  min-width: 0; max-width: 100%; box-sizing: border-box;
+}}
+.cascade-stage-body,
+.cascade-stage-body p,
+.cascade-stage-body li,
+.cascade-stage-body .cascade-impact-line {{
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+}}
+.cascade-stage-status {{
+  margin-top: 0.1rem;
+}}
+.cascade-stage-status span {{
+  white-space: normal;
+}}
+.cascade-evidence {{
+  margin: 0.25rem 0 0; padding: 0;
+  padding-inline-start: 1.1rem;
+  font-size: 0.75rem; color: var(--text-dim);
+  max-width: 100%; min-width: 0; box-sizing: border-box;
+}}
+.cascade-evidence li {{
   overflow-wrap: anywhere; word-break: break-word;
+  margin-bottom: 0.2rem;
 }}
-#supply-chain .cascade-stage-table tbody td * {{
-  max-width: 100%;
-  overflow-wrap: anywhere; word-break: break-word;
-}}
-#supply-chain .cascade-stage-table tbody td:first-child {{
-  font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.15rem;
-}}
-#supply-chain .cascade-stage-table tbody td.cascade-stage-status {{
-  margin-top: 0.3rem;
-}}
-#supply-chain .cascade-stage-table tbody td.cascade-stage-status span {{
-  white-space: normal !important;
-}}
-#supply-chain .cascade-stage-table ul {{
-  margin: 0.25rem 0 0 1rem; padding: 0;
-  padding-inline-start: 1rem; max-width: 100%; min-width: 0;
-}}
-#supply-chain .cascade-stage-table li {{
-  overflow-wrap: anywhere; word-break: break-word;
+.cascade-stage-empty {{
+  text-align: center; color: var(--text-dim); padding: 1.5rem 0;
 }}
 #macro table td:first-child,
 #macro table th:first-child {{ max-width: 7rem; word-break: break-word; }}
@@ -1211,10 +1218,11 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
   padding: 0.4rem 0.5rem;
-  margin: 0 calc(var(--pad-inline) * -1) 0.75rem calc(var(--pad-inline) * -1);
+  /* Phone: no negative margin — it widens the scroll box and body overflow-x clips siblings */
+  margin: 0 0 0.75rem 0;
+  width: 100%; max-width: 100%; box-sizing: border-box;
   display: flex; flex-wrap: wrap; gap: 0.2rem 0.35rem;
   justify-content: flex-start;
-  overflow-x: visible;
   scrollbar-width: none;
   padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
   padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
@@ -1262,10 +1270,6 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 .gloss-detail {{ min-width: 0; max-width: 100%; box-sizing: border-box; }}
 .gloss-detail-body {{
   overflow-wrap: anywhere; word-break: break-word;
-}}
-#supply-chain ul,
-#supply-chain li {{
-  overflow-wrap: anywhere; word-break: break-word; max-width: 100%;
 }}
 #supply-chain .card details {{
   min-width: 0; max-width: 100%; box-sizing: border-box;
@@ -1326,28 +1330,33 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   .section-body .table-scroll.card {{ padding: 1.25rem; }}
   /* (.col-m-hide / .mobile-rotate-hint / .subtitle-detail moved to 600px breakpoint
      so phone-landscape gets the wider layout per the rotate hint promise.) */
-  /* Supply chain cascade — restore table on tablet+ */
-  #supply-chain .cascade-stage-table {{ display: table; table-layout: fixed; width: 100%; }}
-  #supply-chain .cascade-stage-table thead {{ display: table-header-group; }}
-  #supply-chain .cascade-stage-table tbody {{
-    display: table-row-group; width: auto; max-width: none;
+  #supply-chain .section-body {{ padding-left: 1rem; padding-right: 1rem; }}
+  #supply-chain .card {{ padding: 1.25rem; }}
+  .nav-bar {{
+    margin: 0 calc(var(--pad-inline) * -1) 0.75rem calc(var(--pad-inline) * -1);
+    width: auto; max-width: none;
   }}
-  #supply-chain .cascade-stage-table tbody tr.cascade-stage-row {{
-    display: table-row; padding: 0; border-bottom: none;
-    width: auto; max-width: none; min-width: 0;
+  /* Supply chain cascade — 3-column grid on tablet+ */
+  .cascade-stages-header {{
+    display: grid;
+    grid-template-columns: minmax(0, 10rem) minmax(0, 1fr) minmax(0, 8.5rem);
+    gap: 0.5rem 0.75rem;
+    padding: 0 0 0.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.75rem; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-dim);
   }}
-  #supply-chain .cascade-stage-table tbody td {{
-    display: table-cell; width: auto !important; max-width: none !important;
-    padding: 0.5rem 0.75rem !important;
-    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  .cascade-stage {{
+    display: grid;
+    grid-template-columns: minmax(0, 10rem) minmax(0, 1fr) minmax(0, 8.5rem);
+    gap: 0.5rem 0.75rem;
+    align-items: start;
+    padding: 0.5rem 0;
   }}
-  #supply-chain .cascade-stage-table tbody td:first-child {{
-    font-size: inherit; color: inherit; margin-bottom: 0;
+  .cascade-stage-time {{
+    font-size: inherit; color: inherit;
   }}
-  #supply-chain .cascade-stage-table tbody td:last-child {{ margin-top: 0; }}
-  #supply-chain .cascade-stage-table th {{
-    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
-  }}
+  .cascade-stage-status {{ margin-top: 0; }}
   #macro table td:first-child,
   #macro table th:first-child {{ max-width: none; }}
   #signals .table-scroll.wide-min > table {{
@@ -4240,25 +4249,25 @@ def _section_supply_chain(
             if stage.evidence:
                 evidence_items = "".join(f"<li>{escape(e)}</li>" for e in stage.evidence[:5])
                 evidence_html = (
-                    f"<ul class='cascade-evidence' style='margin:0.25rem 0 0 1rem;"
-                    f"padding:0;font-size:0.75rem;color:var(--text-dim);'>"
-                    f"{evidence_items}</ul>"
+                    f"<ul class='cascade-evidence'>{evidence_items}</ul>"
                 )
 
             impact_html = _cascade_stage_impact(stage.name, stage.status)
             timeframe_html = _cascade_timeframe_html(stage)
 
             stage_rows.append(
-                f'<tr class="cascade-stage-row" style="{bg}">'
-                f'<td class="cascade-stage-time" style="font-weight:600;">{timeframe_html}</td>'
-                f'<td class="cascade-stage-body"><strong>{escape(stage.name)}</strong><br>'
+                f'<article class="cascade-stage" style="{bg}" role="row">'
+                f'<div class="cascade-stage-time" role="cell">{timeframe_html}</div>'
+                f'<div class="cascade-stage-body" role="cell">'
+                f"<strong>{escape(stage.name)}</strong><br>"
                 f"<span style='font-size:0.8rem;color:var(--text-dim);'>{escape(stage.description)}</span>"
-                f"{impact_html}{evidence_html}{timeline_note}{first_activated}</td>"
-                f'<td class="cascade-stage-status">{status_html}{meta_html}</td></tr>'
+                f"{impact_html}{evidence_html}{timeline_note}{first_activated}</div>"
+                f'<div class="cascade-stage-status" role="cell">{status_html}{meta_html}</div>'
+                f"</article>"
             )
     else:
         stage_rows = [
-            '<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:1.5rem;">Supply chain data unavailable this run.</td></tr>'
+            '<p class="cascade-stage-empty">Supply chain data unavailable this run.</p>'
         ]
 
     active_count = sum(1 for s in (cascade_stages or []) if s.status == "active")
@@ -4308,13 +4317,15 @@ def _section_supply_chain(
         f"""<div class="card">
 {summary}{elapsed_badge}
 {_hormuz_traffic_evidence_html(tankermap_traffic)}
-<div class="table-scroll table-edge-hint">
-<table class="cascade-stage-table">
-<thead><tr><th>Timeframe</th><th>Impact</th><th>Status</th></tr></thead>
-<tbody>
+<div class="cascade-stages-wrap">
+<div class="cascade-stages" role="table" aria-label="Supply chain cascade stages">
+<div class="cascade-stages-header" role="row">
+<div class="cascade-stages-th" role="columnheader">Timeframe</div>
+<div class="cascade-stages-th" role="columnheader">Impact</div>
+<div class="cascade-stages-th" role="columnheader">Status</div>
+</div>
 {"".join(stage_rows)}
-</tbody>
-</table>
+</div>
 </div>
 {_data_source_footer_html(data_source_status, cross_source_checks)}
 {_explanation_detail("About this cascade model", intro_prose)}
