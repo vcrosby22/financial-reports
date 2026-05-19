@@ -54,6 +54,18 @@ jobs:
           grep -qE 'Macroeconomic Indicators \(FRED\)|Macro \(FRED\)' docs/index.html \
             || { echo "::error::Report HTML missing FRED/macro markers — check FRED_API_KEY secret and network."; exit 1; }
 
+      - name: Mobile layout regression (generated HTML)
+        run: |
+          python -m pytest tests/test_report_mobile_layout.py -q
+          if grep -E 'html[[:space:]]*\{[^}]*overflow-x:[[:space:]]*hidden' docs/index.html; then
+            echo "::error::Generated HTML still has html { overflow-x: hidden } — mobile cascade text will clip."
+            exit 1
+          fi
+          if grep -E '^body[[:space:]]*\{[^}]*overflow-x:[[:space:]]*hidden' docs/index.html; then
+            echo "::error::Generated HTML has body { overflow-x: hidden } on all viewports — use @media (min-width: 768px) only."
+            exit 1
+          fi
+
       - name: Persist data history files
         run: |
           # Race-safe pattern. Avoid rebase on append-only JSONL logs:
