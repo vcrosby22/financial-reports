@@ -693,7 +693,8 @@ def _build_html(
   --pad-block: clamp(0.65rem, -0.1rem + 2.5vw, 2rem);
 }}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html {{ -webkit-text-size-adjust: 100%; scroll-behavior: smooth; overscroll-behavior-x: none; }}
+html {{ -webkit-text-size-adjust: 100%; scroll-behavior: smooth; overscroll-behavior-x: none;
+  overflow-x: hidden; }}
 
 /* \u2500\u2500 Base: phone-first (360\u2013430 CSS px) \u2500\u2500 */
 .section-anchor {{ scroll-margin-top: 6rem; }}
@@ -833,7 +834,10 @@ pre {{
 }}
 .section-collapse {{
   margin-bottom: 1rem; border: 1px solid var(--border);
-  border-radius: 0.75rem; overflow: clip;
+  border-radius: 0.75rem;
+  /* clip caused visible text cutoff on iOS when any child exceeded width; use horizontal containment only */
+  overflow-x: hidden;
+  overflow-y: visible;
 }}
 .section-header {{
   cursor: pointer; padding: 0.85rem 0.75rem;
@@ -952,11 +956,26 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   border-bottom: 1px solid var(--surface2);
 }}
 #supply-chain {{
-  min-width: 0; max-width: 100%;
+  min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box;
 }}
 #supply-chain .section-body,
 #supply-chain .card {{
   min-width: 0; max-width: 100%;
+  overflow-wrap: anywhere; word-break: break-word;
+}}
+/* Do not offer a horizontal scrollbar here: it read as "extra column" on phones and table is stacked anyway */
+#supply-chain .table-scroll {{
+  overflow-x: hidden;
+  min-width: 0;
+}}
+#supply-chain .table-scroll.table-edge-hint {{
+  box-shadow: none;
+}}
+#supply-chain .table-scroll.table-edge-hint::after {{
+  display: none;
+}}
+#supply-chain table {{
+  width: 100%; max-width: 100%;
 }}
 #supply-chain tbody td {{
   display: block; padding: 0.15rem 0 !important;
@@ -1198,13 +1217,17 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   background: var(--surface2); color: var(--text);
   border-bottom: 2px solid var(--cyan);
 }}
-.tab-panel {{ display: none; min-width: 0; max-width: 100%; }}
+.tab-panel {{ display: none; min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; }}
 .tab-panel.active {{ display: block; }}
+/* Cascade panel: isolate any stray min-content width from blowing past the viewport */
+.tab-panel[data-tab="cascade"] {{
+  overflow-x: hidden;
+  max-width: 100%;
+}}
 /* Cascade tab: long italic lines + source chips stay inside the viewport */
 .cascade-impact-line {{
-  overflow-wrap: anywhere; word-break: break-word;
+  overflow-wrap: anywhere; word-break: break-word; max-width: 100%;
 }}
-.cascade-data-source-footer {{ min-width: 0; max-width: 100%; }}
 .cascade-data-source-chips {{
   display: flex; flex-wrap: wrap; align-items: flex-start;
   gap: 0.4rem 0.75rem; margin-top: 0.35rem;
@@ -1219,6 +1242,18 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
 }}
 .cascade-drift-line span {{
   display: inline; overflow-wrap: anywhere;
+}}
+/* Nested "About this..." disclosures — long sentences must wrap on narrow viewports */
+.gloss-detail {{ min-width: 0; max-width: 100%; box-sizing: border-box; }}
+.gloss-detail-body {{
+  overflow-wrap: anywhere; word-break: break-word;
+}}
+#supply-chain ul,
+#supply-chain li {{
+  overflow-wrap: anywhere; word-break: break-word; max-width: 100%;
+}}
+#supply-chain .card details {{
+  min-width: 0; max-width: 100%; box-sizing: border-box;
 }}
 
 /* \u2500\u2500 Foldable / mini-tablet / phone-landscape (\u2265 600px) \u2500\u2500 */
@@ -4322,10 +4357,11 @@ The system surfaces the best opportunities at each risk level and is explicit ab
 def _explanation_detail(summary_text: str, content: str) -> str:
     """Nested disclosure for methodology/explanation prose — keeps data visible."""
     return (
-        f'<details style="margin:0.5rem 0;"><summary style="cursor:pointer;'
+        f'<details class="gloss-detail" style="margin:0.5rem 0;min-width:0;'
+        f'max-width:100%;"><summary style="cursor:pointer;'
         f'font-size:0.8rem;color:var(--text-dim);">{summary_text}</summary>'
-        f'<div style="margin:0.4rem 0 0 0.5rem;font-size:0.82rem;'
-        f'color:var(--text-dim);">{content}</div></details>'
+        f'<div class="gloss-detail-body" style="margin:0.4rem 0 0 0.5rem;'
+        f'font-size:0.82rem;color:var(--text-dim);min-width:0;">{content}</div></details>'
     )
 
 
