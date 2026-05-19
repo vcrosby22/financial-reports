@@ -951,9 +951,17 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   display: block; padding: 0.75rem 0;
   border-bottom: 1px solid var(--surface2);
 }}
+#supply-chain {{
+  min-width: 0; max-width: 100%;
+}}
+#supply-chain .section-body,
+#supply-chain .card {{
+  min-width: 0; max-width: 100%;
+}}
 #supply-chain tbody td {{
   display: block; padding: 0.15rem 0 !important;
   white-space: normal !important;
+  overflow-wrap: anywhere; word-break: break-word; min-width: 0;
 }}
 #supply-chain tbody td:first-child {{
   font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.15rem;
@@ -1168,18 +1176,16 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   border-bottom: 1px solid var(--border);
   padding: 0.4rem 0.5rem;
   margin: 0 calc(var(--pad-inline) * -1) 0.75rem calc(var(--pad-inline) * -1);
-  display: flex; flex-wrap: nowrap; gap: 0.15rem 0.3rem;
-  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-wrap: wrap; gap: 0.2rem 0.35rem;
+  justify-content: flex-start;
+  overflow-x: visible;
   scrollbar-width: none;
   padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
   padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
 }}
 .nav-bar::-webkit-scrollbar {{ display: none; }}
-.nav-bar::after {{
-  content: ''; position: sticky; right: 0; flex-shrink: 0;
-  min-width: 1.5rem; min-height: 100%; pointer-events: none;
-  background: linear-gradient(to right, transparent, rgba(15, 23, 42, 0.92));
-}}
+/* Horizontal-scroll hint not needed when tabs wrap (phone); tablet+ rule below. */
+.nav-bar::after {{ display: none; }}
 .nav-bar a {{
   color: var(--cyan); text-decoration: none; font-size: 0.7rem;
   font-weight: 600; padding: 0.4rem 0.55rem; border-radius: 0.35rem;
@@ -1192,8 +1198,28 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
   background: var(--surface2); color: var(--text);
   border-bottom: 2px solid var(--cyan);
 }}
-.tab-panel {{ display: none; }}
+.tab-panel {{ display: none; min-width: 0; max-width: 100%; }}
 .tab-panel.active {{ display: block; }}
+/* Cascade tab: long italic lines + source chips stay inside the viewport */
+.cascade-impact-line {{
+  overflow-wrap: anywhere; word-break: break-word;
+}}
+.cascade-data-source-footer {{ min-width: 0; max-width: 100%; }}
+.cascade-data-source-chips {{
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: 0.4rem 0.75rem; margin-top: 0.35rem;
+}}
+.cascade-data-chip {{
+  display: inline-flex; align-items: flex-start; gap: 0.3rem;
+  max-width: 100%; white-space: normal;
+}}
+.cascade-data-chip > span:last-child {{
+  min-width: 0; flex: 1 1 auto;
+  overflow-wrap: anywhere; word-break: break-word;
+}}
+.cascade-drift-line span {{
+  display: inline; overflow-wrap: anywhere;
+}}
 
 /* \u2500\u2500 Foldable / mini-tablet / phone-landscape (\u2265 600px) \u2500\u2500 */
 @media (min-width: 600px) {{
@@ -1264,6 +1290,12 @@ details[open] > .bond-bank-summary::before {{ transform: rotate(90deg); }}
     font-size: inherit; color: inherit; margin-bottom: 0;
   }}
   #supply-chain tbody td:last-child {{ margin-top: 0; }}
+  /* Narrow tablets: keep long status lines + impact prose inside the table grid */
+  #supply-chain table {{ table-layout: fixed; width: 100%; }}
+  #supply-chain th,
+  #supply-chain td {{
+    overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+  }}
   #macro table td:first-child,
   #macro table th:first-child {{ max-width: none; }}
   #signals .table-scroll.wide-min > table {{
@@ -3850,7 +3882,7 @@ def _cascade_stage_impact(stage_name: str, status: str) -> str:
         color = "var(--text-dim)"
 
     return (
-        f'<div style="font-size:0.78rem;color:{color};margin-top:0.4rem;'
+        f'<div class="cascade-impact-line" style="font-size:0.78rem;color:{color};margin-top:0.4rem;'
         f'line-height:1.5;font-style:italic;">'
         f'<strong style="font-style:normal;color:var(--text-dim);">'
         f'What it means: </strong>{text}'
@@ -3890,12 +3922,11 @@ def _data_source_footer_html(
     for label, state in status.items():
         color, word = palette.get(state, ("#64748b", state))
         chips.append(
-            f'<span style="display:inline-flex;align-items:center;gap:0.3rem;'
-            f'margin-right:0.9rem;white-space:nowrap;">'
-            f'<span style="display:inline-block;width:0.5rem;height:0.5rem;'
-            f'border-radius:50%;background:{color};"></span>'
-            f'<span>{escape(label)}</span>'
-            f'<span style="color:var(--text-dim);">— {word}</span>'
+            f'<span class="cascade-data-chip">'
+            f'<span style="display:inline-block;flex-shrink:0;width:0.5rem;height:0.5rem;'
+            f'border-radius:50%;background:{color};margin-top:0.2rem;"></span>'
+            f'<span><strong style="color:var(--text);">{escape(label)}</strong> '
+            f'<span style="color:var(--text-dim);">— {escape(word)}</span></span>'
             f'</span>'
         )
 
@@ -3913,18 +3944,21 @@ def _data_source_footer_html(
                     f"</span>"
                 )
             drift_line = (
-                '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.4rem;line-height:1.5;">'
+                '<div class="cascade-drift-line" style="font-size:0.7rem;color:var(--text-dim);'
+                'margin-top:0.4rem;line-height:1.5;">'
                 '<strong style="color:var(--text);">Cross-source validity:</strong> '
                 + " &middot; ".join(parts)
                 + '</div>'
             )
 
     return (
-        '<div style="font-size:0.72rem;color:var(--text-dim);'
+        '<div class="cascade-data-source-footer" style="font-size:0.72rem;color:var(--text-dim);'
         'margin-top:0.75rem;padding-top:0.6rem;border-top:1px solid var(--border);'
         'line-height:1.6;">'
-        '<strong style="color:var(--text);">Cascade data sources:</strong> '
+        '<strong style="color:var(--text);">Cascade data sources:</strong>'
+        '<div class="cascade-data-source-chips">'
         + "".join(chips)
+        + '</div>'
         + drift_line +
         '</div>'
     )
