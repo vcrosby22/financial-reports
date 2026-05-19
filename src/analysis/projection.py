@@ -1,7 +1,8 @@
 """Forward-looking risk projection and bottom-estimate model.
 
-Combines risk score trajectory, macro net-stress ratio, and supply chain
-cascade momentum into a directional forecast:
+Combines risk score trajectory, macro net-stress ratio, bond-market stress
+(same composite as the Bond Stress KPI), and supply chain cascade momentum
+into a directional forecast:
   WORSENING / STRESSED, HOLDING / STABLE / EASING.
 
 Direction is determined purely by trajectory (are things getting worse?)
@@ -25,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..data.macro import MacroSnapshot
+from ..data.macro import MacroSnapshot, compute_bond_stress_read
 from ..data.risk_score_log import RiskTrend
 
 
@@ -170,6 +171,30 @@ def compute_projection(
     elif macro and macro.indicators:
         family_votes.append(0)
 
+    # --- Bond market stress (dedicated composite — not diluted by unrelated macro) ---
+    bond_sub = 0.0
+    bond_read = compute_bond_stress_read(macro) if macro else None
+    if bond_read:
+        data_points += 1
+        detail = ", ".join(bond_read.summary_parts[:3]) if bond_read.summary_parts else "no detail"
+        if bond_read.tier == "Stressed":
+            bond_sub = 2.0
+            factors.append(f"Bond stress {bond_read.tier} ({bond_read.stress_points} pts) — {detail}")
+        elif bond_read.tier == "Watch":
+            bond_sub = 1.0
+            factors.append(f"Bond stress {bond_read.tier} ({bond_read.stress_points} pts) — {detail}")
+        else:
+            bond_sub = -0.25
+            factors.append(f"Bond stress {bond_read.tier} — {detail}")
+
+    score += bond_sub
+    if bond_sub > 0.3:
+        family_votes.append(1)
+    elif bond_sub < -0.1:
+        family_votes.append(-1)
+    elif bond_read:
+        family_votes.append(0)
+
     # --- Supply chain cascade momentum (6-stage model, symmetric) ---
     cascade_sub = 0.0
     data_points += 1
@@ -203,6 +228,18 @@ def compute_projection(
         direction = "stressed_holding"
     else:
         direction = "stable"
+
+    # Bond/risk divergence: falling risk score does not override stressed credit/curve.
+    if bond_read and bond_read.tier in ("Watch", "Stressed") and direction == "easing":
+        direction = "stable"
+        factors.append(
+            "Bond market stress conflicts with easing risk-score trajectory — outlook held to STABLE"
+        )
+    elif bond_read and bond_read.tier == "Stressed" and direction == "stable":
+        direction = "stressed_holding"
+        factors.append(
+            "Bond market stressed while risk score is flat — outlook STRESSED, HOLDING"
+        )
 
     # --- Confidence: data completeness (50%) + signal convergence (50%) ---
     completeness = min(data_points / 8, 1.0)

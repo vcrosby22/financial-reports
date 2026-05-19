@@ -589,6 +589,76 @@ def _classify_signal(indicator: MacroIndicator):
             indicator.description = f"{label} at {indicator.value:.1f}% — near or below 2% target"
 
 
+@dataclass
+class BondStressRead:
+    """Same composite logic as the report Bond Stress KPI — shared with forward outlook."""
+
+    stress_points: int
+    tier: str  # Calm | Watch | Stressed
+    summary_parts: list[str] = field(default_factory=list)
+
+
+def _macro_indicator(macro: MacroSnapshot, series_id: str) -> MacroIndicator | None:
+    return next((ind for ind in macro.indicators if ind.series_id == series_id), None)
+
+
+def compute_bond_stress_read(macro: MacroSnapshot | None) -> BondStressRead | None:
+    """Bond-market stress composite (curve, credit spreads, 10Y) — mirrors top KPI row."""
+    if not macro or not macro.indicators:
+        return None
+
+    t10y2y = _macro_indicator(macro, "T10Y2Y")
+    t10y3m = _macro_indicator(macro, "T10Y3M")
+    hy = _macro_indicator(macro, "BAMLH0A0HYM2")
+    bbb = _macro_indicator(macro, "BAMLC0A4CBBB")
+    d10 = _macro_indicator(macro, "DGS10")
+
+    stress_points = 0
+    if macro.yield_curve_inverted:
+        stress_points += 2
+    if macro.credit_stress:
+        stress_points += 2
+    for ind in (t10y2y, t10y3m, hy, bbb, d10):
+        if not ind:
+            continue
+        if ind.signal == "critical":
+            stress_points += 2
+        elif ind.signal in ("warning", "bearish"):
+            stress_points += 1
+
+    if stress_points >= 4:
+        tier = "Stressed"
+    elif stress_points >= 1:
+        tier = "Watch"
+    else:
+        tier = "Calm"
+
+    sub_parts: list[str] = []
+    signal_rank = {"critical": 3, "warning": 2, "bearish": 1, "neutral": 0, "bullish": 0}
+    curve = max(
+        [ind for ind in (t10y3m, t10y2y) if ind],
+        key=lambda ind: signal_rank.get(ind.signal, 0),
+        default=None,
+    )
+    if curve:
+        if curve.value < 0:
+            curve_label = "inverted"
+        elif curve.signal in ("warning", "bearish"):
+            curve_label = "near-flat"
+        else:
+            curve_label = "normal"
+        sub_parts.append(f"Curve {curve_label} ({curve.value:+.2f} pp)")
+    if hy:
+        sub_parts.append(f"HY spread {hy.value:.2f}%")
+    if d10:
+        direction = ""
+        if d10.change is not None:
+            direction = f" ({d10.change:+.2f})"
+        sub_parts.append(f"10Y {d10.value:.2f}%{direction}")
+
+    return BondStressRead(stress_points=stress_points, tier=tier, summary_parts=sub_parts)
+
+
 def apply_derived_macro_flags(snapshot: MacroSnapshot) -> None:
     """Recompute flags from `snapshot.indicators` (yield inversion, credit stress, recession tally)."""
     _assess_yield_curve(snapshot)
