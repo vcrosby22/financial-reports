@@ -9,8 +9,9 @@ on:
       - 'requirements.txt'
       - '.github/workflows/daily-report.yml'
   schedule:
-    # 12:00 UTC = 7:00 AM ET (pre-market, weekdays)
-    - cron: '0 12 * * 1-5'
+    # 10:00 UTC = 5:00 AM ET (pre-market, weekdays). GH Actions often drifts +2–4h;
+    # with drift, expect ~8:30 AM ET rather than 11:30 AM when scheduled at 12:00 UTC.
+    - cron: '0 10 * * 1-5'
     # 21:30 UTC = 4:30 PM ET (post-market close, weekdays)
     - cron: '30 21 * * 1-5'
   workflow_dispatch:

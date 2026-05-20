@@ -5,11 +5,14 @@ name: Report Watchdog
 #   1. Auto-dispatch daily-report.yml to recover.
 #   2. Open (or comment on) a GitHub Issue tagged 'report-alert' so the
 #      repo owner receives an email notification with the audit trail.
-# This turns "miss → user finds it later" into "miss → self-heals within ~3h".
+# Early 13:30 UTC check dispatches only (no issue) when recovery succeeds —
+# catches GH cron drift before US morning readers. Late 15:00 check still alerts.
 
 on:
   schedule:
-    # 15:00 UTC Mon-Fri — 3 h after the 12:00 UTC morning cron
+    # 13:30 UTC Mon-Fri — early morning recovery (~8:30 AM ET target before drift)
+    - cron: '30 13 * * 1-5'
+    # 15:00 UTC Mon-Fri — late morning backstop (~3 h after 10:00 UTC report cron)
     - cron: '0 15 * * 1-5'
     # 00:30 UTC Tue-Sat — 3 h after the 21:30 UTC evening cron
     - cron: '30 0 * * 2-6'
@@ -29,11 +32,13 @@ jobs:
           script: |
             const now = new Date();
             const hour = now.getUTCHours();
+            const triggeredCron = context.payload.schedule || '';
 
             // Determine which cron window we're checking.
-            // 15:00 UTC watchdog → morning window (12:00 UTC target)
+            // 13:30 / 15:00 UTC watchdog → morning window (10:00 UTC target)
             // 00:30 UTC watchdog → evening window (21:30 UTC target)
             const isMorningCheck = hour >= 12 && hour <= 18;
+            const isEarlyRecovery = triggeredCron === '30 13 * * 1-5';
             const windowStart = new Date(now);
 
             if (isMorningCheck) {
@@ -44,9 +49,10 @@ jobs:
               windowStart.setUTCHours(20, 30, 0, 0);
             }
 
-            const label = isMorningCheck ? 'morning (12:00 UTC)' : 'evening (21:30 UTC)';
+            const label = isMorningCheck ? 'morning (10:00 UTC)' : 'evening (21:30 UTC)';
             const dateStr = windowStart.toISOString().split('T')[0];
 
+            core.info(`Watchdog triggered by: ${triggeredCron || '(manual)'}`);
             core.info(`Checking ${label} window — looking for runs since ${windowStart.toISOString()}`);
 
             const { data: runs } = await github.rest.actions.listWorkflowRuns({
@@ -77,6 +83,12 @@ jobs:
             } catch (e) {
               dispatchError = e.message || String(e);
               core.error(`Watchdog: auto-dispatch failed — ${dispatchError}`);
+            }
+
+            // Early recovery: dispatch is enough; skip issue noise if recovery succeeded.
+            if (isEarlyRecovery && recovered) {
+              core.info('Early recovery succeeded — skipping report-alert issue.');
+              return;
             }
 
             const title = `Daily Report missed ${label} window — ${dateStr}`;
