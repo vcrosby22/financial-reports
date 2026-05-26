@@ -1,7 +1,7 @@
 """Generate a static HTML report from the latest market scan data.
 
 Usage: python -m src report
-Produces: reports/market-report-YYYY-MM-DD.html
+Produces: reports/market-report-YYYY-MM-DD.html (or --output path for CI/Pages)
 """
 
 import os
