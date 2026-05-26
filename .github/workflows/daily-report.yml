@@ -14,6 +14,7 @@ on:
     - cron: '0 10 * * 1-5'
     # 21:30 UTC = 4:30 PM ET (post-market close, weekdays)
     - cron: '30 21 * * 1-5'
+  # workflow_dispatch also available from Actions tab (when GitHub API dispatch is healthy)
   workflow_dispatch:
 
 permissions:
