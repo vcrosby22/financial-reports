@@ -1165,6 +1165,19 @@
       "source": "github_actions",
       "github_sha": "2caec501f8fdde61c8f29c82039debaed0220e60",
       "github_run_id": "30587679011"
+    },
+    "2026-07-31": {
+      "snapshot_date": "2026-07-31",
+      "ts_utc": "2026-07-31T11:51:43.872909+00:00",
+      "score": 100,
+      "score_uncapped": 567,
+      "overall_risk": "heavy_stress",
+      "critical_count": 10,
+      "warning_count": 19,
+      "leading_signal_count": 14,
+      "source": "github_actions",
+      "github_sha": "e09e33644a8e61f2b96a587a347ed81b8cf6bc2a",
+      "github_run_id": "30628409620"
     }
   }
 }
