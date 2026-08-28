@@ -1415,7 +1415,7 @@
     },
     "2026-08-27": {
       "snapshot_date": "2026-08-27",
-      "ts_utc": "2026-08-27T20:03:12.004688+00:00",
+      "ts_utc": "2026-08-28T00:16:11.985093+00:00",
       "score": 100,
       "score_uncapped": 420,
       "overall_risk": "heavy_stress",
@@ -1423,8 +1423,19 @@
       "warning_count": 18,
       "leading_signal_count": 12,
       "source": "github_actions",
-      "github_sha": "768deffc174f33c5f89427f507de4ca54d68fcfb",
-      "github_run_id": "33111252294"
+      "github_sha": "0a103e1292695887106293574b9fab1f20d32735",
+      "github_run_id": "33129048939"
+    },
+    "2026-08-28": {
+      "snapshot_date": "2026-08-28",
+      "ts_utc": "2026-08-28T00:16:11.984547+00:00",
+      "score": 100,
+      "score_uncapped": 420,
+      "overall_risk": "heavy_stress",
+      "critical_count": 5,
+      "warning_count": 18,
+      "leading_signal_count": 12,
+      "source": "github_actions"
     }
   }
 }
