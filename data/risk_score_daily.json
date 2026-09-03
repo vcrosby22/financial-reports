@@ -1488,6 +1488,19 @@
       "source": "github_actions",
       "github_sha": "865d67d160b4e83925cdd5c4b9c57d5b7768465c",
       "github_run_id": "33695305908"
+    },
+    "2026-09-03": {
+      "snapshot_date": "2026-09-03",
+      "ts_utc": "2026-09-03T13:59:09.331849+00:00",
+      "score": 100,
+      "score_uncapped": 460,
+      "overall_risk": "heavy_stress",
+      "critical_count": 6,
+      "warning_count": 20,
+      "leading_signal_count": 11,
+      "source": "github_actions",
+      "github_sha": "f306cc706e3cc92d8ba8b02a7681f43d120d40bd",
+      "github_run_id": "33764005511"
     }
   }
 }
