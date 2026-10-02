@@ -1775,14 +1775,16 @@
     },
     "2026-10-02": {
       "snapshot_date": "2026-10-02",
-      "ts_utc": "2026-10-02T01:03:33.882887+00:00",
+      "ts_utc": "2026-10-02T16:03:08.683154+00:00",
       "score": 100,
-      "score_uncapped": 389,
+      "score_uncapped": 527,
       "overall_risk": "heavy_stress",
-      "critical_count": 5,
-      "warning_count": 12,
-      "leading_signal_count": 12,
-      "source": "github_actions"
+      "critical_count": 4,
+      "warning_count": 27,
+      "leading_signal_count": 13,
+      "source": "github_actions",
+      "github_sha": "a0dc149d4d7713c665df8cf5a5b1008cc9229779",
+      "github_run_id": "37030781580"
     }
   }
 }
