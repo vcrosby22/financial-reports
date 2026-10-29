@@ -2031,16 +2031,27 @@
     },
     "2026-10-28": {
       "snapshot_date": "2026-10-28",
-      "ts_utc": "2026-10-28T16:19:50.579810+00:00",
+      "ts_utc": "2026-10-29T01:11:46.497256+00:00",
       "score": 100,
-      "score_uncapped": 512,
+      "score_uncapped": 504,
       "overall_risk": "heavy_stress",
-      "critical_count": 5,
-      "warning_count": 26,
+      "critical_count": 6,
+      "warning_count": 22,
       "leading_signal_count": 14,
       "source": "github_actions",
-      "github_sha": "d99fddc2d1174e0badbea6002cb08bd1ad1625cb",
-      "github_run_id": "40724539339"
+      "github_sha": "67214227f23ba0ac16120bc0ee9c464590b9fbed",
+      "github_run_id": "40798577141"
+    },
+    "2026-10-29": {
+      "snapshot_date": "2026-10-29",
+      "ts_utc": "2026-10-29T01:11:46.495161+00:00",
+      "score": 100,
+      "score_uncapped": 504,
+      "overall_risk": "heavy_stress",
+      "critical_count": 6,
+      "warning_count": 22,
+      "leading_signal_count": 14,
+      "source": "github_actions"
     }
   }
 }
