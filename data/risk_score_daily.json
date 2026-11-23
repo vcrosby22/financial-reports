@@ -2306,6 +2306,19 @@
       "warning_count": 58,
       "leading_signal_count": 17,
       "source": "github_actions"
+    },
+    "2026-11-23": {
+      "snapshot_date": "2026-11-23",
+      "ts_utc": "2026-11-23T21:46:52.328365+00:00",
+      "score": 100,
+      "score_uncapped": 790,
+      "overall_risk": "heavy_stress",
+      "critical_count": 15,
+      "warning_count": 26,
+      "leading_signal_count": 17,
+      "source": "github_actions",
+      "github_sha": "3d81ddf9c1e3408f5e78eb88e01a212ca005e84d",
+      "github_run_id": "45272803831"
     }
   }
 }
