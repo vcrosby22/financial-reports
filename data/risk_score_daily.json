@@ -2348,14 +2348,16 @@
     },
     "2026-11-26": {
       "snapshot_date": "2026-11-26",
-      "ts_utc": "2026-11-26T03:45:18.342411+00:00",
+      "ts_utc": "2026-11-26T19:20:17.474190+00:00",
       "score": 100,
-      "score_uncapped": 594,
+      "score_uncapped": 596,
       "overall_risk": "heavy_stress",
       "critical_count": 9,
       "warning_count": 22,
       "leading_signal_count": 17,
-      "source": "github_actions"
+      "source": "github_actions",
+      "github_sha": "9988712ffc95739304824a84d681d098ca3d63b2",
+      "github_run_id": "45882596886"
     }
   }
 }
